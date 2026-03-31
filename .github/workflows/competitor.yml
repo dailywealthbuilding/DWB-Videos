@@ -1,0 +1,190 @@
+name: Competitor Video Tracker
+
+# -----------------------------------------------------------------------------
+# Runs every Saturday 6PM EAT (3PM UTC)
+# Tracks top finance channels' latest uploads
+# Identifies trending topics and gaps in your content
+# Sends report via ntfy every week
+# -----------------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: '0 15 * * 6'  # Saturday 3PM UTC = 6PM EAT
+  workflow_dispatch: {}
+
+jobs:
+  competitor-tracker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Track competitor videos + find content gaps
+        env:
+          YOUTUBE_DATA_API_KEY: ${{ secrets.YOUTUBE_DATA_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          node  {
+              const req = https.request(options, res => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => resolve({ status: res.statusCode, body: data }));
+              });
+              req.on('error', reject);
+              req.end();
+            });
+          }
+
+          async function fetchRecentVideos(channelId, channelName) {
+            try {
+              const res  = await httpsRequest({
+                hostname: 'www.googleapis.com',
+                path:     '/youtube/v3/search?part=snippet&channelId=' + channelId
+                  + '&type=video&order=date&maxResults=5&key=' + YT_KEY,
+                method:   'GET',
+              });
+              const data = JSON.parse(res.body);
+              return (data.items || []).map(item => ({
+                channel: channelName,
+                title:   item.snippet?.title || '',
+                date:    item.snippet?.publishedAt?.slice(0, 10) || '',
+                videoId: item.id?.videoId || '',
+              }));
+            } catch(e) {
+              console.log('Failed to fetch ' + channelName + ': ' + e.message);
+              return [];
+            }
+          }
+
+          async function sendNtfy(message, title, priority) {
+            if (!NTFY) return;
+            const data = Buffer.from(message);
+            return new Promise((resolve) => {
+              const req = https.request({
+                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
+                headers:  {
+                  'Content-Type':   'text/plain',
+                  'Content-Length': data.length,
+                  'Title':          title,
+                  'Tags':           'eyes,chart_with_upwards_trend',
+                  'Priority':       priority || 'default',
+                },
+              }, res => { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
+              req.on('error', () => resolve());
+              req.write(data);
+              req.end();
+            });
+          }
+
+          async function analyzeWithGroq(videos) {
+            if (!GROQ_KEY || videos.length === 0) return null;
+            try {
+              const videoList = videos.map(function(v) {
+                return '- [' + v.channel + '] "' + v.title + '"';
+              }).join('\n');
+              const prompt = 'You are a finance content strategist. Analyze these recent videos from top finance creators and identify:\n'
+                + '1. Top 3 trending topics this week\n'
+                + '2. Top 3 content gaps (topics they have not covered that would perform well)\n'
+                + '3. One specific video angle for @DailyWealthBuilding to create next week\n\n'
+                + 'Recent competitor videos:\n'
+                + videoList + '\n\n'
+                + 'Respond in JSON only:\n'
+                + '{"trends":["topic1","topic2","topic3"],"gaps":["gap1","gap2","gap3"],"recommendation":"specific video angle for next week"}';
+
+              const body = JSON.stringify({
+                model:       'llama-3.1-70b-versatile',
+                max_tokens:  500,
+                temperature: 0.4,
+                messages:    [{ role: 'user', content: prompt }],
+              });
+
+              const res = await new Promise((resolve, reject) => {
+                const req = https.request({
+                  hostname: 'api.groq.com',
+                  path:     '/openai/v1/chat/completions',
+                  method:   'POST',
+                  headers:  {
+                    'Content-Type':   'application/json',
+                    'Content-Length': Buffer.byteLength(body),
+                    'Authorization':  'Bearer ' + GROQ_KEY,
+                  },
+                }, res => {
+                  let data = '';
+                  res.on('data', d => data += d);
+                  res.on('end', () => resolve({ status: res.statusCode, body: data }));
+                });
+                req.on('error', reject);
+                req.write(body);
+                req.end();
+              });
+
+              const data  = JSON.parse(res.body);
+              const raw   = data.choices?.[0]?.message?.content || '';
+              const clean = raw.replace(/```json|```/g, '').trim();
+              return JSON.parse(clean);
+            } catch(e) {
+              console.log('Groq analysis failed: ' + e.message);
+              return null;
+            }
+          }
+
+          (async () => {
+            console.log('Fetching competitor videos...');
+
+            // Fetch all channels in parallel
+            const allVideos = (await Promise.all(
+              COMPETITORS.map(c => fetchRecentVideos(c.id, c.name))
+            )).flat();
+
+            console.log('Found ' + allVideos.length + ' recent videos');
+
+            // Filter to last 7 days
+            const cutoff     = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+            const thisWeek   = allVideos.filter(v => v.date >= cutoff);
+            const olderVids  = allVideos.filter(v => v.date  {
+              lines.push(' [' + v.channel.split(' ')[0] + '] ' + v.title.slice(0, 55));
+            });
+
+            if (analysis) {
+              lines.push('');
+              lines.push(' TRENDING TOPICS');
+              analysis.trends.forEach(t => lines.push(' ' + t));
+              lines.push('');
+              lines.push(' CONTENT GAPS (your opportunity)');
+              analysis.gaps.forEach(g => lines.push(' ' + g));
+              lines.push('');
+              lines.push(' YOUR NEXT VIDEO');
+              lines.push(analysis.recommendation);
+            }
+
+            const message = lines.join('\n');
+            console.log('\n' + message);
+
+            await sendNtfy(
+              message,
+              'Competitor Report -- ' + thisWeek.length + ' new videos this week',
+              'default'
+            );
+
+            console.log('\nCompetitor report complete');
+          })();
+          EOF
+
+      - name: Commit competitor report
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add -f competitor-report.json || true
+          git diff --staged --quiet || git commit -m "chore: update competitor report [skip ci]"
+          git push || true
