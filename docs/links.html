@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>@DailyWealthBuilding -- Resource Hub</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Raleway:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Google Analytics 4 -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=GA_MEASUREMENT_ID"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'GA_MEASUREMENT_ID');
+</script>
+<style>
+:root {
+  --gold: #E8A920;
+  --gold2: #c8911a;
+  --gold3: #ffd166;
+  --bg: #020304;
+  --bg2: #060a0c;
+  --sf: #0a1015;
+  --tx: #dce6f0;
+  --td: #3a5060;
+  --tm: #6a8090;
+  --grn: #00d68f;
+  --red: #ff4560;
+  --blu: #3fb0f5;
+  --pur: #a374ff;
+  --border: rgba(232,169,32,0.08);
+  --border2: rgba(232,169,32,0.18);
+  --glow: rgba(232,169,32,0.06);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--tx);
+  font-family: 'Raleway', sans-serif;
+  min-height: 100vh;
+}
+
+/* -- HEADER -- */
+.header {
+  text-align: center;
+  padding: 48px 24px 32px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(232,169,32,0.04) 0%, transparent 100%);
+}
+.header-logo {
+  font-family: 'Cinzel', serif;
+  font-size: 11px;
+  letter-spacing: .4em;
+  color: var(--gold2);
+  margin-bottom: 12px;
+}
+.header-title {
+  font-family: 'Cinzel', serif;
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--gold);
+  letter-spacing: .1em;
+  margin-bottom: 8px;
+}
+.header-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--tm);
+  letter-spacing: .15em;
+  margin-bottom: 24px;
+}
+.header-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--sf);
+  border: 1px solid var(--border2);
+  padding: 8px 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--gold);
+  letter-spacing: .15em;
+}
+.header-progress .day-badge {
+  background: var(--gold);
+  color: #000;
+  padding: 2px 8px;
+  font-weight: 700;
+  font-size: 9px;
+}
+
+/* -- DISCLOSURE -- */
+.disclosure {
+  max-width: 700px;
+  margin: 24px auto;
+  padding: 12px 20px;
+  background: rgba(232,169,32,0.04);
+  border: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--tm);
+  text-align: center;
+  letter-spacing: .05em;
+  line-height: 1.8;
+}
+
+/* -- MAIN LAYOUT -- */
+.container {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+
+/* -- SECTION -- */
+.section {
+  margin-bottom: 40px;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.section-icon {
+  font-size: 16px;
+}
+.section-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  letter-spacing: .4em;
+  color: var(--gold2);
+  flex: 1;
+}
+.section-count {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 7px;
+  color: var(--td);
+}
+
+/* -- LINK CARD -- */
+.link-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--sf);
+  border: 1px solid var(--border);
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  text-decoration: none;
+  transition: all .18s;
+  cursor: pointer;
+}
+.link-card:hover {
+  border-color: var(--border2);
+  background: var(--glow);
+  transform: translateX(3px);
+}
+.link-icon {
+  width: 36px;
+  height: 36px;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.link-info { flex: 1; min-width: 0; }
+.link-name {
+  font-family: 'Raleway', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--tx);
+  margin-bottom: 3px;
+}
+.link-desc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--tm);
+  letter-spacing: .04em;
+}
+.link-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 7px;
+  padding: 3px 8px;
+  letter-spacing: .1em;
+  flex-shrink: 0;
+  font-weight: 700;
+}
+.badge-live { background: rgba(0,214,143,0.1); color: var(--grn); border: 1px solid rgba(0,214,143,0.2); }
+.badge-free { background: rgba(63,176,245,0.1); color: var(--blu); border: 1px solid rgba(63,176,245,0.2); }
+.badge-earn { background: rgba(232,169,32,0.1); color: var(--gold); border: 1px solid rgba(232,169,32,0.2); }
+.badge-new  { background: rgba(163,116,255,0.1); color: var(--pur); border: 1px solid rgba(163,116,255,0.2); }
+
+/* -- SUPPORT CARD -- */
+.support-card {
+  background: linear-gradient(135deg, rgba(232,169,32,0.06) 0%, rgba(232,169,32,0.02) 100%);
+  border: 1px solid var(--border2);
+  padding: 24px;
+  text-align: center;
+  margin-bottom: 32px;
+}
+.support-title {
+  font-family: 'Cinzel', serif;
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--gold);
+  margin-bottom: 8px;
+  letter-spacing: .1em;
+}
+.support-sub {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: var(--tm);
+  letter-spacing: .1em;
+  margin-bottom: 20px;
+  line-height: 1.8;
+}
+.support-btn {
+  display: inline-block;
+  background: var(--gold);
+  color: #000;
+  font-family: 'Cinzel', serif;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .2em;
+  padding: 12px 32px;
+  text-decoration: none;
+  transition: all .18s;
+}
+.support-btn:hover {
+  background: var(--gold3);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(232,169,32,0.3);
+}
+
+/* -- FOOTER -- */
+.footer {
+  text-align: center;
+  padding: 32px 20px;
+  border-top: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 8px;
+  color: var(--td);
+  letter-spacing: .1em;
+  line-height: 2;
+}
+.footer a {
+  color: var(--gold2);
+  text-decoration: none;
+}
+</style>
+</head>
+<body>
+
+<!-- -- HEADER -- -->
+<div class="header">
+  <div class="header-logo">⬡ @DAILYWEALTHBUILDING</div>
+  <div class="header-title">RESOURCE HUB</div>
+  <div class="header-sub">TOOLS · COURSES · AFFILIATES · SUPPORT</div>
+  <div class="header-progress">
+    <span class="day-badge">DAY 37/90</span>
+    <span>90-DAY PUBLIC CHALLENGE -- $0 BUDGET</span>
+  </div>
+</div>
+
+<!-- -- DISCLOSURE -- -->
+<div class="disclosure">
+  ⬡ AFFILIATE DISCLOSURE -- Some links below are affiliate links. If you click and make a purchase,
+  I may earn a small commission at no extra cost to you. I only recommend tools I genuinely use or believe in.
+  All content is for educational purposes only. Not financial advice.
+</div>
+
+<div class="container">
+
+  <!-- -- SUPPORT -- -->
+  <div class="support-card">
+    <div class="support-title">⬡ SUPPORT THE CHANNEL</div>
+    <div class="support-sub">
+      This channel runs on $0. Every video is automated.<br>
+      If this content helped you, a coffee means everything.
+    </div>
+    <a href="https://ko-fi.com/dailywealthbuilding" target="_blank" rel="noopener" class="support-btn">
+      ☕ BUY ME A COFFEE
+    </a>
+  </div>
+
+  <!-- -- FREE TOOLS -- -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-icon">🛠</span>
+      <span class="section-title">FREE TOOLS I USE</span>
+      <span class="section-count">5 TOOLS</span>
+    </div>
+
+    <a href="https://www.canva.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">🎨</div>
+      <div class="link-info">
+        <div class="link-name">Canva</div>
+        <div class="link-desc">Design thumbnails, graphics, social posts -- free tier is powerful</div>
+      </div>
+      <span class="link-badge badge-free">FREE</span>
+    </a>
+
+    <a href="https://chat.openai.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">🤖</div>
+      <div class="link-info">
+        <div class="link-name">ChatGPT</div>
+        <div class="link-desc">AI content ideas, scripts, captions -- free tier available</div>
+      </div>
+      <span class="link-badge badge-free">FREE</span>
+    </a>
+
+    <a href="https://www.capcut.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">🎬</div>
+      <div class="link-info">
+        <div class="link-name">CapCut</div>
+        <div class="link-desc">Best free video editor for Shorts/Reels -- text effects included</div>
+      </div>
+      <span class="link-badge badge-free">FREE</span>
+    </a>
+
+    <a href="https://ntfy.sh" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">🔔</div>
+      <div class="link-info">
+        <div class="link-name">ntfy.sh</div>
+        <div class="link-desc">Free push notifications -- powers this channel's pipeline alerts</div>
+      </div>
+      <span class="link-badge badge-free">FREE</span>
+    </a>
+
+    <a href="https://github.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">💻</div>
+      <div class="link-info">
+        <div class="link-name">GitHub Actions</div>
+        <div class="link-desc">Free automation -- runs this entire channel on autopilot</div>
+      </div>
+      <span class="link-badge badge-free">FREE</span>
+    </a>
+  </div>
+
+  <!-- -- INVESTING & FINANCE APPS -- -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-icon">📈</span>
+      <span class="section-title">INVESTING & FINANCE APPS</span>
+      <span class="section-count">4 PICKS</span>
+    </div>
+
+    <a href="https://www.acorns.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">🌱</div>
+      <div class="link-info">
+        <div class="link-name">Acorns</div>
+        <div class="link-desc">Micro-investing -- rounds up your spare change automatically</div>
+      </div>
+      <span class="link-badge badge-earn">AFFILIATE</span>
+    </a>
+
+    <a href="https://www.m1.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">📊</div>
+      <div class="link-info">
+        <div class="link-name">M1 Finance</div>
+        <div class="link-desc">Automated investing with fractional shares -- $0 fees</div>
+      </div>
+      <span class="link-badge badge-earn">AFFILIATE</span>
+    </a>
+
+    <a href="https://www.youneedabudget.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">💰</div>
+      <div class="link-info">
+        <div class="link-name">YNAB (You Need A Budget)</div>
+        <div class="link-desc">Best budgeting app -- users save $600 in the first 2 months avg</div>
+      </div>
+      <span class="link-badge badge-earn">AFFILIATE</span>
+    </a>
+
+    <a href="https://www.coinbase.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">₿</div>
+      <div class="link-info">
+        <div class="link-name">Coinbase</div>
+        <div class="link-desc">Buy Bitcoin & crypto -- earn rewards on first purchase</div>
+      </div>
+      <span class="link-badge badge-earn">AFFILIATE</span>
+    </a>
+  </div>
+
+  <!-- -- YOUTUBE GROWTH TOOLS -- -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-icon">📺</span>
+      <span class="section-title">YOUTUBE GROWTH TOOLS</span>
+      <span class="section-count">2 PICKS</span>
+    </div>
+
+    <a href="https://www.tubebuddy.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">🎯</div>
+      <div class="link-info">
+        <div class="link-name">TubeBuddy</div>
+        <div class="link-desc">SEO, tag research, A/B testing for YouTube -- 30% recurring commission</div>
+      </div>
+      <span class="link-badge badge-earn">AFFILIATE</span>
+    </a>
+
+    <a href="https://vidiq.com" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">🔍</div>
+      <div class="link-info">
+        <div class="link-name">VidIQ</div>
+        <div class="link-desc">YouTube analytics & keyword research -- free tier available</div>
+      </div>
+      <span class="link-badge badge-earn">AFFILIATE</span>
+    </a>
+  </div>
+
+  <!-- -- AMAZON PICKS -- -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-icon">📚</span>
+      <span class="section-title">RECOMMENDED BOOKS</span>
+      <span class="section-count">AMAZON ASSOCIATES</span>
+    </div>
+
+    <a href="https://www.amazon.com/dp/1612680194?tag=YOURAMAZONID-20" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">📖</div>
+      <div class="link-info">
+        <div class="link-name">Rich Dad Poor Dad</div>
+        <div class="link-desc">Robert Kiyosaki -- The book that started it for millions</div>
+      </div>
+      <span class="link-badge badge-earn">AMAZON</span>
+    </a>
+
+    <a href="https://www.amazon.com/dp/0735224951?tag=YOURAMAZONID-20" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">📖</div>
+      <div class="link-info">
+        <div class="link-name">Atomic Habits</div>
+        <div class="link-desc">James Clear -- 1% better every day. Life-changing.</div>
+      </div>
+      <span class="link-badge badge-earn">AMAZON</span>
+    </a>
+
+    <a href="https://www.amazon.com/dp/1401970974?tag=YOURAMAZONID-20" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">📖</div>
+      <div class="link-info">
+        <div class="link-name">The Psychology of Money</div>
+        <div class="link-desc">Morgan Housel -- How to think about wealth, greed, and happiness</div>
+      </div>
+      <span class="link-badge badge-earn">AMAZON</span>
+    </a>
+  </div>
+
+  <!-- -- CHANNEL LINKS -- -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-icon">⬡</span>
+      <span class="section-title">FIND ME EVERYWHERE</span>
+      <span class="section-count">PLATFORMS</span>
+    </div>
+
+    <a href="https://www.youtube.com/@DailyWealthBuilding" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">▶</div>
+      <div class="link-info">
+        <div class="link-name">YouTube</div>
+        <div class="link-desc">@DailyWealthBuilding -- Daily Shorts, every single day</div>
+      </div>
+      <span class="link-badge badge-live">LIVE</span>
+    </a>
+
+    <a href="https://www.tiktok.com/@DailyWealthBuilding" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">🎵</div>
+      <div class="link-info">
+        <div class="link-name">TikTok</div>
+        <div class="link-desc">@DailyWealthBuilding -- Same videos, bigger reach</div>
+      </div>
+      <span class="link-badge badge-live">LIVE</span>
+    </a>
+
+    <a href="https://ko-fi.com/dailywealthbuilding" target="_blank" rel="noopener" class="link-card">
+      <div class="link-icon">☕</div>
+      <div class="link-info">
+        <div class="link-name">Ko-fi</div>
+        <div class="link-desc">Support the channel -- runs entirely on $0 budget</div>
+      </div>
+      <span class="link-badge badge-live">LIVE</span>
+    </a>
+  </div>
+
+</div>
+
+<!-- -- FOOTER -- -->
+<div class="footer">
+  <div>⬡ @DailyWealthBuilding -- 90-Day Public Challenge</div>
+  <div>Built with $0 · Remotion 4.0.220 · GitHub Actions</div>
+  <div style="margin-top:8px">
+    <a href="tos.html">Terms of Service</a> &nbsp;·&nbsp;
+    <a href="privacy.html">Privacy Policy</a> &nbsp;·&nbsp;
+    <a href="mailto:dailywealthbuilding@gmail.com">Contact</a>
+  </div>
+  <div style="margin-top:8px; color: var(--td)">
+    DISCLOSURE: Some links are affiliate links. See top of page for full disclosure.
+  </div>
+</div>
+
+</body>
+</html>
