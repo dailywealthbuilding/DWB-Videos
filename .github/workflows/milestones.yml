@@ -1,0 +1,289 @@
+name: Subscriber Milestones + Scoreboard
+
+# -----------------------------------------------------------------------------
+# Runs daily at 7PM EAT (4PM UTC)
+# Checks subscriber count against milestones
+# Fires ntfy alert when milestone hit
+# Regenerates 90-day scoreboard HTML page
+# -----------------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: '0 16 * * *'  # Daily 4PM UTC = 7PM EAT
+  workflow_dispatch: {}
+
+jobs:
+  milestones:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check milestones + update scoreboard
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          node  {
+              const req = https.request(options, res => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => resolve({ status: res.statusCode, body: data }));
+              });
+              req.on('error', reject);
+              if (body) req.write(body);
+              req.end();
+            });
+          }
+
+          async function getAccessToken() {
+            const body = new URLSearchParams({
+              client_id: CLIENT_ID, client_secret: CLIENT_SECRET,
+              refresh_token: REFRESH_TOKEN, grant_type: 'refresh_token',
+            }).toString();
+            const res  = await httpsRequest({
+              hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) }
+            }, body);
+            const data = JSON.parse(res.body);
+            if (!data.access_token) throw new Error('Token failed');
+            return data.access_token;
+          }
+
+          async function getChannelStats(token) {
+            const res  = await httpsRequest({
+              hostname: 'www.googleapis.com',
+              path:     '/youtube/v3/channels?part=statistics,snippet&mine=true',
+              method:   'GET',
+              headers:  { 'Authorization': 'Bearer ' + token }
+            });
+            const data = JSON.parse(res.body);
+            const item = (data.items || [])[0];
+            return {
+              subs:   parseInt(item?.statistics?.subscriberCount || 0),
+              views:  parseInt(item?.statistics?.viewCount       || 0),
+              videos: parseInt(item?.statistics?.videoCount      || 0),
+              title:  item?.snippet?.title || '@DailyWealthBuilding',
+            };
+          }
+
+          async function sendNtfy(message, title, priority, tags) {
+            if (!NTFY) return;
+            const data = Buffer.from(message);
+            return new Promise((resolve) => {
+              const req = https.request({
+                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
+                headers: {
+                  'Content-Type': 'text/plain', 'Content-Length': data.length,
+                  'Title': title, 'Tags': tags || 'tada', 'Priority': priority || 'default',
+                },
+              }, res => { resolve(); });
+              req.on('error', () => resolve());
+              req.write(data);
+              req.end();
+            });
+          }
+
+          // -- Calculate challenge day --
+          function getChallengeDay() {
+            // Day 1 = Feb 11, 2026 (based on day36 = March 18)
+            const start = new Date('2026-02-11');
+            const today = new Date();
+            const diff  = Math.floor((today - start) / (1000 * 60 * 60 * 24));
+            return Math.max(1, Math.min(90, diff + 1));
+          }
+
+          // -- Generate scoreboard HTML --
+          function generateScoreboard(stats, day, milestoneHit, history) {
+            const pct       = Math.round((day / 90) * 100);
+            const nextMs    = MILESTONES.find(function(m) { return m > stats.subs; }) || stats.subs;
+            const msProgress= Math.round((stats.subs / nextMs) * 100);
+            const today     = new Date().toISOString().slice(0, 10);
+
+            const chartData = history.slice(-8).map(function(h) {
+              return {
+                week:  (h.week || '').split(' to ')[0].slice(5) || h.date.slice(5) || '',
+                views: h.views || 0,
+                subs:  h.netSubs || 0,
+              };
+            });
+            const maxViews = Math.max.apply(null, chartData.map(function(d) { return d.views; }).concat([1]));
+
+            var chartBars = '';
+            chartData.forEach(function(d) {
+              var h = Math.round((d.views / maxViews) * 76);
+              chartBars += '' + d.week + '';
+            });
+
+            var chartSection = '';
+            if (chartData.length > 0) {
+              chartSection = 'Weekly Views' + chartBars + '';
+            }
+
+            var milestoneItems = '';
+            MILESTONES.forEach(function(m) {
+              if (m checkmark ' + m.toLocaleString() + '';
+              } else if (m === nextMs) {
+                milestoneItems += 'next ' + m.toLocaleString() + '';
+              } else {
+                milestoneItems += '' + m.toLocaleString() + '';
+              }
+            });
+
+            var subsRemaining = (nextMs - stats.subs).toLocaleString();
+            var viewsK = (stats.views / 1000).toFixed(1);
+
+            return '\n'
+              + '\n\n'
+              + '\n'
+              + '\n'
+              + '\n'
+              + 'DWB -- 90 Day Challenge Live Scoreboard\n'
+              + '\n'
+              + '\n'
+              + '*{box-sizing:border-box;margin:0;padding:0}\n'
+              + 'body{background:#020304;color:#e8edf2;font-family:Syne,sans-serif;min-height:100vh;padding:24px 16px 48px}\n'
+              + 'body::before{content:"";position:fixed;inset:0;background-image:linear-gradient(rgba(240,180,41,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(240,180,41,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none}\n'
+              + '.container{max-width:700px;margin:0 auto;position:relative;z-index:1}\n'
+              + '.header{text-align:center;margin-bottom:32px;padding:32px 24px;background:linear-gradient(135deg,#050a0f,#040710);border:1px solid #1e2d3d;border-radius:16px}\n'
+              + '.day-badge{font-family:Space Mono,monospace;font-size:11px;letter-spacing:5px;color:#f0b429;text-transform:uppercase;margin-bottom:8px}\n'
+              + '.title{font-family:Bebas Neue,sans-serif;font-size:clamp(36px,8vw,64px);letter-spacing:3px;line-height:0.95;margin-bottom:8px}\n'
+              + '.g{color:#f0b429}.w{color:#e8edf2}.b{color:#4cc9f0}\n'
+              + '.subtitle{font-family:Space Mono,monospace;font-size:10px;color:#7a8fa0;letter-spacing:3px}\n'
+              + '.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:20px}\n'
+              + '@media(min-width:500px){.cards{grid-template-columns:repeat(4,1fr)}}\n'
+              + '.card{background:#0c1014;border:1px solid #1e2d3d;border-radius:12px;padding:16px;text-align:center}\n'
+              + '.card-num{font-family:Bebas Neue,sans-serif;font-size:36px;letter-spacing:2px;color:#f0b429;line-height:1}\n'
+              + '.card-label{font-family:Space Mono,monospace;font-size:9px;color:#7a8fa0;letter-spacing:2px;text-transform:uppercase;margin-top:4px}\n'
+              + '.progress-section{background:#0c1014;border:1px solid #1e2d3d;border-radius:12px;padding:20px;margin-bottom:12px}\n'
+              + '.prog-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}\n'
+              + '.prog-title{font-family:Space Mono,monospace;font-size:10px;color:#7a8fa0;letter-spacing:2px;text-transform:uppercase}\n'
+              + '.prog-val{font-family:Bebas Neue,sans-serif;font-size:22px;color:#f0b429;letter-spacing:2px}\n'
+              + '.bar{height:8px;background:#1e2d3d;border-radius:100px;overflow:hidden;margin-bottom:6px}\n'
+              + '.bar-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,#d4941a,#ffd166)}\n'
+              + '.bar-fill.blue{background:linear-gradient(90deg,#1a6fd4,#4cc9f0)}\n'
+              + '.prog-sub{font-family:Space Mono,monospace;font-size:9px;color:#3a4f60}\n'
+              + '.chart{background:#0c1014;border:1px solid #1e2d3d;border-radius:12px;padding:20px;margin-bottom:12px}\n'
+              + '.chart-title{font-family:Space Mono,monospace;font-size:10px;color:#7a8fa0;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px}\n'
+              + '.bars{display:flex;align-items:flex-end;gap:6px;height:80px}\n'
+              + '.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}\n'
+              + '.bar-v{width:100%;background:#f0b429;border-radius:4px 4px 0 0;min-height:2px}\n'
+              + '.bar-label{font-family:Space Mono,monospace;font-size:7px;color:#3a4f60;text-align:center}\n'
+              + '.milestone{background:#0c1014;border:1px solid #1e2d3d;border-radius:12px;padding:16px;margin-bottom:12px}\n'
+              + '.ms-title{font-family:Space Mono,monospace;font-size:10px;color:#7a8fa0;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px}\n'
+              + '.ms-list{display:flex;flex-wrap:wrap;gap:6px}\n'
+              + '.ms-item{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:100px;font-family:Space Mono,monospace;font-size:10px;font-weight:700}\n'
+              + '.ms-done{background:rgba(6,214,160,0.12);color:#06d6a0;border:1px solid rgba(6,214,160,0.25)}\n'
+              + '.ms-next{background:rgba(240,180,41,0.15);color:#f0b429;border:1px solid rgba(240,180,41,0.3)}\n'
+              + '.ms-future{background:#111820;color:#3a4f60;border:1px solid #1e2d3d}\n'
+              + '.footer{text-align:center;font-family:Space Mono,monospace;font-size:9px;color:#3a4f60;margin-top:20px;letter-spacing:2px}\n'
+              + '.live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#06d6a0;margin-right:4px;animation:pulse 2s infinite}\n'
+              + '@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}\n'
+              + '\n\n\n'
+              + '\n'
+              + '\n'
+              + 'Live -- Updated ' + today + '\n'
+              + 'DAY ' + day + 'OF90\n'
+              + '@DailyWealthBuilding -- 90-Day Public Challenge\n'
+              + '\n'
+              + '\n'
+              + '' + day + 'Day / 90\n'
+              + '' + stats.subs.toLocaleString() + 'Subscribers\n'
+              + '' + viewsK + 'KTotal Views\n'
+              + '' + stats.videos + 'Videos Live\n'
+              + '\n'
+              + '\n'
+              + 'Challenge Progress' + pct + '%\n'
+              + '\n'
+              + '' + (90 - day) + ' days remaining\n'
+              + '\n'
+              + '\n'
+              + 'Next Milestone: ' + nextMs.toLocaleString() + ' subs' + msProgress + '%\n'
+              + '\n'
+              + '' + subsRemaining + ' subscribers to go\n'
+              + '\n'
+              + chartSection + '\n'
+              + 'Subscriber Milestones' + milestoneItems + '\n'
+              + 'Auto-updates daily -- @DailyWealthBuilding -- 90-Day Public Challenge\n'
+              + '\n\n';
+          }
+
+          (async () => {
+            if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
+              console.log('YouTube secrets not configured -- skipping milestone check.');
+              process.exit(0);
+            }
+
+            let token, stats;
+            try {
+              token = await getAccessToken();
+              stats = await getChannelStats(token);
+              console.log('Channel stats: ' + stats.subs + ' subs | ' + stats.views + ' views | ' + stats.videos + ' videos');
+            } catch(e) {
+              console.log('Could not fetch channel stats: ' + e.message);
+              process.exit(0);
+            }
+
+            // -- Load previous milestone state --
+            let prevState = { subs: 0, milestonesHit: [] };
+            try { prevState = JSON.parse(fs.readFileSync('milestone-state.json', 'utf8')); } catch(e) {}
+
+            // -- Check for new milestone hits --
+            const newMilestones = MILESTONES.filter(m =>
+              stats.subs >= m && !prevState.milestonesHit.includes(m)
+            );
+
+            if (newMilestones.length > 0) {
+              for (const ms of newMilestones) {
+                console.log(' MILESTONE HIT: ' + ms + ' subscribers!');
+                await sendNtfy(
+                  '@DailyWealthBuilding just hit ' + ms.toLocaleString() + ' subscribers! \n\n'
+                  + 'Total views: ' + stats.views.toLocaleString() + '\n'
+                  + 'Videos live: ' + stats.videos + '\n\n'
+                  + 'Keep going My King ',
+                  ' ' + ms.toLocaleString() + ' SUBSCRIBERS HIT!',
+                  'high',
+                  'tada,trophy,fire'
+                );
+                prevState.milestonesHit.push(ms);
+              }
+            }
+
+            // -- Update milestone state --
+            prevState.subs    = stats.subs;
+            prevState.lastCheck = new Date().toISOString();
+            fs.writeFileSync('milestone-state.json', JSON.stringify(prevState, null, 2));
+
+            // -- Generate scoreboard page --
+            const day     = getChallengeDay();
+            let   history = [];
+            try { history = JSON.parse(fs.readFileSync('analytics-history.json', 'utf8')); } catch(e) {}
+
+            const html = generateScoreboard(stats, day, newMilestones, history);
+            fs.mkdirSync('docs', { recursive: true });
+            fs.writeFileSync('docs/index.html', html);
+            console.log('Scoreboard updated: docs/index.html');
+            console.log('Live at: https://dailywealthbuilding.github.io/dwb-videos/');
+
+          })();
+          EOF
+
+      - name: Commit scoreboard + milestone state
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add docs/index.html milestone-state.json || true
+          git diff --staged --quiet || git commit -m "chore: update scoreboard + milestone state [skip ci]"
+          git push || true
