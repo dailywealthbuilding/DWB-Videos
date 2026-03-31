@@ -1,0 +1,214 @@
+name: Auto-Generate Next Week Content (Groq AI)
+
+# -----------------------------------------------------------------------------
+# Runs every Saturday 9PM EAT (6PM UTC) -- after competitor tracker
+# Uses Groq (free) to draft next week's content file
+# Commits draft to repo as weekN-content-DRAFT.js for your review
+# You review  rename to weekN-content.js  pipeline picks it up Monday
+# -----------------------------------------------------------------------------
+
+on:
+  schedule:
+    - cron: '0 18 * * 6'  # Saturday 6PM UTC = 9PM EAT
+  workflow_dispatch:
+    inputs:
+      week_number:
+        description: 'Week number to generate (e.g. 7). Leave blank for auto-detect.'
+        required: false
+        default: ''
+
+jobs:
+  generate-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate next week content file
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          node  f.match(/^week\d+-content\.js$/));
+          const wNums    = files.map(f => parseInt(f.match(/week(\d+)/)[1])).sort((a,b) => b-a);
+          const override = '${{ github.event.inputs.week_number }}';
+          const nextWeek = override ? parseInt(override) : (wNums[0] || 6) + 1;
+          const startDay = (nextWeek - 1) * 7 + 1;
+          const endDay   = nextWeek * 7;
+
+          console.log('Generating content for Week ' + nextWeek + ' (Days ' + startDay + '-' + endDay + ')');
+
+          // -- Load competitor report for context --
+          let competitorContext = '';
+          try {
+            const report = JSON.parse(fs.readFileSync('competitor-report.json', 'utf8'));
+            if (report.analysis) {
+              competitorContext = '\nTrending topics this week: ' + report.analysis.trends.join(', ')
+                + '\nContent gaps to fill: ' + report.analysis.gaps.join(', ')
+                + '\nRecommended angle: ' + report.analysis.recommendation;
+            }
+          } catch(e) { /* no competitor report yet */ }
+
+          // -- Load analytics for context --
+          let analyticsContext = '';
+          try {
+            const history = JSON.parse(fs.readFileSync('analytics-history.json', 'utf8'));
+            if (history.length > 0) {
+              const last = history[history.length - 1];
+              analyticsContext = '\nLast week analytics: ' + last.views + ' views, '
+                + last.netSubs + ' net subscribers, avg duration ' + last.avgDuration + 's';
+            }
+          } catch(e) { /* no analytics yet */ }
+
+          // -- Hook formulas reference --
+          const HOOK_TYPES = [
+            'myth-bust: "Everything you know about X is wrong"',
+            'identity: "If you earn under $XK/month, watch this"',
+            'expose: "What banks/schools/bosses don\'t want you to know"',
+            'contrarian: "Stop doing X -- here\'s why it\'s keeping you broke"',
+            'curiosity-gap: "The one thing wealthy people never tell you about X"',
+            'transformation: "From broke to X -- the exact method"',
+            'shocking-stat: "97% of people get X wrong -- here\'s the truth"',
+          ];
+
+          // -- Week themes --
+          const WEEK_THEMES = {
+            6:  'Money Myths & The Wealth Gap',
+            7:  'Income Streams & Side Hustles',
+            8:  'Investing for Beginners',
+            9:  'Debt, Credit & Financial Freedom',
+            10: 'Trust, Conversion & Building Authority',
+            11: 'Advanced Wealth Strategies',
+            12: 'Passive Income & Affiliate Marketing',
+            13: 'Grand Finale -- Results & Proof',
+          };
+          const theme = WEEK_THEMES[nextWeek] || 'Financial Freedom & Wealth Building';
+
+          // -- Whether to use default or named export --
+          const exportType = nextWeek  {
+              const body = JSON.stringify({
+                model:       'llama-3.1-70b-versatile',
+                max_tokens:  4000,
+                temperature: 0.7,
+                messages:    [{ role: 'user', content: prompt }],
+              });
+              const req = https.request({
+                hostname: 'api.groq.com',
+                path:     '/openai/v1/chat/completions',
+                method:   'POST',
+                headers:  {
+                  'Content-Type':   'application/json',
+                  'Content-Length': Buffer.byteLength(body),
+                  'Authorization':  'Bearer ' + GROQ_KEY,
+                },
+              }, res => {
+                let data = '';
+                res.on('data', d => data += d);
+                res.on('end', () => resolve({ status: res.statusCode, body: data }));
+              });
+              req.on('error', reject);
+              req.write(body);
+              req.end();
+            });
+          }
+
+          async function sendNtfy(message, title, priority) {
+            if (!NTFY) return;
+            const data = Buffer.from(message);
+            return new Promise((resolve) => {
+              const req = https.request({
+                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
+                headers:  {
+                  'Content-Type':   'text/plain',
+                  'Content-Length': data.length,
+                  'Title':          title,
+                  'Tags':           'robot,pencil',
+                  'Priority':       priority || 'default',
+                },
+              }, res => { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
+              req.on('error', () => resolve());
+              req.write(data);
+              req.end();
+            });
+          }
+
+          (async () => {
+            try {
+              console.log('Calling Groq API...');
+              const res  = await callGroq(prompt);
+              const data = JSON.parse(res.body);
+
+              if (res.status !== 200) {
+                console.log('Groq error: ' + res.status + ' -- ' + res.body.slice(0, 200));
+                process.exit(0);
+              }
+
+              let content = data.choices?.[0]?.message?.content || '';
+
+              // Strip any accidental markdown fences
+              content = content.replace(/^```javascript\n?|^```js\n?|^```\n?|```$/gm, '').trim();
+
+              if (!content.includes('export') || !content.includes('day' + startDay)) {
+                console.log('Generated content looks invalid -- not saving');
+                console.log('Preview: ' + content.slice(0, 300));
+                process.exit(0);
+              }
+
+              // Add header comment
+              const header = '// -----------------------------------------------------------------------------\n'
+                + '// src/week' + nextWeek + '-content.js -- DWB Week ' + nextWeek + ' -- Days ' + startDay + '-' + endDay + '\n'
+                + '// Theme: ' + theme + '\n'
+                + '// AUTO-GENERATED by Groq AI (Llama 3.1 70B) -- REVIEW BEFORE USE\n'
+                + '// Generated: ' + new Date().toISOString().slice(0,10) + '\n'
+                + '// -----------------------------------------------------------------------------\n\n';
+              const finalContent = header + content;
+
+              // Save as DRAFT -- you review and rename
+              const draftPath = path.join(srcDir, 'week' + nextWeek + '-content-DRAFT.js');
+              fs.writeFileSync(draftPath, finalContent);
+              console.log('Draft saved to: ' + draftPath);
+
+              // Count videos generated
+              const dayMatches = (finalContent.match(/id:\s*["']day\d+["']/g) || []);
+              console.log('Videos in draft: ' + dayMatches.length);
+
+              await sendNtfy(
+                'Week ' + nextWeek + ' draft generated by Groq AI.\n\n'
+                + 'Theme: ' + theme + '\n'
+                + 'Days: ' + startDay + '-' + endDay + '\n'
+                + 'Videos: ' + dayMatches.length + '/7\n\n'
+                + 'Review src/week' + nextWeek + '-content-DRAFT.js\n'
+                + 'Rename to week' + nextWeek + '-content.js when ready.\n'
+                + 'Pipeline auto-picks it up Monday 6AM.',
+                'Week ' + nextWeek + ' Content Draft Ready -- Review Needed',
+                'default'
+              );
+
+            } catch(e) {
+              console.log('Content generation error: ' + e.message);
+              await sendNtfy(
+                'Content generation failed: ' + e.message,
+                'DWB Content Gen FAILED',
+                'high'
+              );
+            }
+          })();
+          EOF
+
+      - name: Commit draft content file
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add src/week*-content-DRAFT.js || true
+          git diff --staged --quiet || git commit -m "chore: add AI-generated week content draft [skip ci]"
+          git push || true
