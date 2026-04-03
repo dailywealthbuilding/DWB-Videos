@@ -1,4 +1,3 @@
-  // -----------------------------------------------------------------------------
 // AudioTrack.jsx -- DWB Audio Engine v2.0
 // Upgrades vs v1:
 //    Audio ducking: music dips when text overlays are active
@@ -41,7 +40,7 @@ const DAY_BPM = {
 // -- Milestone days that get crowd cheer SFX --
 const MILESTONE_DAYS = new Set(['day30', 'day60', 'day90']);
 
-// -- SFX trigger map: animation type  SFX file + frame offset --
+// -- SFX trigger map: animation type -> SFX file + frame offset --
 // frame offset = how many frames into the overlay the SFX should fire
 const SFX_MAP = {
   'slide-left':  { file: 'whoosh.mp3',  offset: 0,  duration: 15 },
@@ -56,6 +55,7 @@ const SFX_MAP = {
 // Helper: compute audio ducking volume
 // Music dips to duckVolume when any text overlay is active,
 // returns to baseVolume when screen is between overlays.
+// [FIXED: restored <= operators that were eaten by HTML encoding]
 // -----------------------------------------------------------------------------
 function computeDuckedVolume(frame, fps, baseVolume, overlays) {
   if (!overlays || overlays.length === 0) return baseVolume;
@@ -65,7 +65,28 @@ function computeDuckedVolume(frame, fps, baseVolume, overlays) {
   const UNDUCK_FRAMES = Math.round(fps * 0.18); // 0.18s fade back up
 
   // Is the current frame inside any overlay?
-  const inOverlay = overlays.some(o => frame >= o.startFrame && frame = o.startFrame - DUCK_FRAMES && frame = o.endFrame - UNDUCK_FRAMES && frame = 0) {
+  const inOverlay = overlays.some(o => frame >= o.startFrame && frame <= o.endFrame);
+
+  // Find nearest duck transition start (approaching an overlay)
+  const duckStart = overlays.reduce((best, o) => {
+    const d = o.startFrame - DUCK_FRAMES;
+    if (frame >= d && frame < o.startFrame) {
+      return (best === -1 || d > best) ? d : best;
+    }
+    return best;
+  }, -1);
+
+  // Find nearest unduck transition start (leaving an overlay)
+  const unduckStart = overlays.reduce((best, o) => {
+    const u = o.endFrame - UNDUCK_FRAMES;
+    if (frame >= u && frame <= o.endFrame + UNDUCK_FRAMES) {
+      return (best === -1 || u > best) ? u : best;
+    }
+    return best;
+  }, -1);
+
+  // Smooth transition into duck
+  if (duckStart >= 0) {
     return interpolate(frame,
       [duckStart - DUCK_FRAMES, duckStart],
       [baseVolume, DUCK_VOLUME],
@@ -88,8 +109,39 @@ function computeDuckedVolume(frame, fps, baseVolume, overlays) {
 }
 
 // -----------------------------------------------------------------------------
-// SFX Clip -- renders a single sound effect at a specific absolute frame
+// MusicTrack -- wraps a music file with fade-in and fade-out envelope
+// [FIXED: was referenced but never defined — added here]
+// -----------------------------------------------------------------------------
+const MusicTrack = ({ filename, startFrame = 0, durationFrames = 900, baseVolume = 0.75 }) => {
+  const frame = useCurrentFrame();
+  const { durationInFrames } = useVideoConfig();
+  const FADE_IN  = 30;
+  const FADE_OUT = 45;
+  const endFrame = startFrame + durationFrames;
+
+  if (frame > endFrame + FADE_OUT) return null;
+
+  const volume = Math.min(
+    interpolate(frame, [startFrame, startFrame + FADE_IN], [0, baseVolume],
+      { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }),
+    interpolate(frame, [endFrame - FADE_OUT, endFrame], [baseVolume, 0],
+      { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' })
+  );
+
+  return (
+    <Audio
+      src={staticFile('music/' + filename)}
+      startFrom={Math.max(0, startFrame)}
+      endAt={endFrame + FADE_OUT}
+      volume={volume}
+    />
+  );
+};
+
+// -----------------------------------------------------------------------------
+// SfxClip -- renders a single sound effect at a specific absolute frame
 // with fade-in/out envelope to prevent harsh cuts
+// [FIXED: was using 'filename' but prop is 'file']
 // -----------------------------------------------------------------------------
 const SfxClip = ({ file, startFrame, durationFrames, baseVolume = 0.6 }) => {
   const frame = useCurrentFrame();
@@ -108,7 +160,7 @@ const SfxClip = ({ file, startFrame, durationFrames, baseVolume = 0.6 }) => {
 
   return (
     <Audio
-      src={staticFile('music/' + filename)}
+      src={staticFile('sfx/' + file)}
       startFrom={Math.max(0, startFrame)}
       endAt={endFrame + FADE_OUT}
       volume={volume}
@@ -178,12 +230,12 @@ export const AudioTrack = ({
 
       {/* SFX layer -- one clip per animation trigger */}
       {sfxTriggers.map((sfx, idx) => (
-        <Audio
+        <SfxClip
           key={idx}
-          src={staticFile('sfx/' + (sfx.file || 'whoosh.mp3'))}
-          startFrom={0}
-          endAt={30}
-          volume={sfx.volume || 0.35}
+          file={sfx.file}
+          startFrame={sfx.startFrame}
+          durationFrames={sfx.durationFrames}
+          baseVolume={0.35}
         />
       ))}
 
