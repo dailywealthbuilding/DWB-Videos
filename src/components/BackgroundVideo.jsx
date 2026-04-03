@@ -1,4 +1,4 @@
-  import { OffthreadVideo, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, staticFile } from 'remotion';
+import { AbsoluteFill, OffthreadVideo, useCurrentFrame, useVideoConfig, interpolate } from 'remotion';
 
 // -----------------------------------------------------------------------------
 // CLIP HELPER
