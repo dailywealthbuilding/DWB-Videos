@@ -4,7 +4,6 @@ import { TextOverlay } from '../components/TextOverlay.jsx';
 import { AudioTrack } from '../components/AudioTrack.jsx';
 import { Particles, DAY_PARTICLES } from '../components/Particles.jsx';
 import {
-  LowerThird,
   SceneNumber,
   CornerTimestamp,
 } from '../components/SpecialOverlays.jsx';
