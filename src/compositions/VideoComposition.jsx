@@ -662,7 +662,7 @@ const LowerThird = () => {
 // -----------------------------------------------------------------------------
 // MAIN COMPOSITION
 // -----------------------------------------------------------------------------
-export const VideoComposition = ({ videoId, overlays: propOverlays, music: propMusic }) => {
+export const VideoComposition = ({ videoId, overlays: propOverlays, music: propMusic, backgroundMode, customClips, photos, photoSpeed }) => {
   // Accept overlays from props (new index.jsx approach) OR fall back to empty
   const overlays = propOverlays || [];
   const music    = propMusic || `${videoId}.mp3`;
@@ -673,10 +673,10 @@ export const VideoComposition = ({ videoId, overlays: propOverlays, music: propM
     <AbsoluteFill style={{ background: '#000' }}>
 
       {/* Layer 1: Background video clips */}
-      <BackgroundVideo videoId={videoId} />
+      <BackgroundVideo videoId={videoId} backgroundMode={backgroundMode} customClips={customClips} photos={photos} photoSpeed={photoSpeed} />
 
-      {/* Layer 2: Base dark overlay */}
-      <AbsoluteFill style={{ background: 'rgba(0,0,0,0.18)', pointerEvents: 'none' }} />
+      {/* Layer 2: Base dark overlay -- reduced to eliminate glass/translucent effect */}
+      <AbsoluteFill style={{ background: 'rgba(0,0,0,0.06)', pointerEvents: 'none' }} />
 
       {/* Layer 3: Cinematic color grade */}
       <ColorGrade videoId={videoId} />
