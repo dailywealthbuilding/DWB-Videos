@@ -1409,10 +1409,11 @@ export const TextOverlay = ({ overlay }) => {
         color: safeColor,
         ...strokeStyle,
         textAlign: "center",
-        lineHeight: 1.2,
+        lineHeight: 1.25,
         whiteSpace: "pre-line",
         fontStyle,
-        letterSpacing: extraSpacing,
+        letterSpacing: extraSpacing !== "normal" ? extraSpacing : "0.01em",
+        wordSpacing: "0.05em",
       }}>{rawText}</div>
     </div>
   );
