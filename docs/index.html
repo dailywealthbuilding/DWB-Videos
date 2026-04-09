@@ -5,17 +5,31 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-body{margin:0;background:#080c14;color:#e8f0fe;
-font-family:monospace;display:flex;align-items:center;
-justify-content:center;height:100vh;text-align:center}
-h1{color:#ff6b35;font-size:2rem;margin-bottom:8px}
-p{color:#6b8cba;font-size:.9rem}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080c14;color:#e8f0fe;font-family:monospace;
+display:flex;align-items:center;justify-content:center;
+min-height:100vh;text-align:center;padding:20px}
+.wrap{max-width:400px}
+h1{color:#ff6b35;font-size:1.8rem;margin-bottom:8px}
+p{color:#6b8cba;font-size:.9rem;margin-bottom:30px}
+.links{display:flex;gap:20px;justify-content:center;flex-wrap:wrap}
+a{color:#00d4aa;font-size:.85rem;text-decoration:none;
+border:1px solid rgba(0,212,170,.3);padding:8px 20px}
+a:hover{background:rgba(0,212,170,.1)}
+.tag{font-size:.7rem;color:#3d5a80;margin-top:20px;
+letter-spacing:.15em}
 </style>
 </head>
 <body>
-<div>
-<h1>@DailyWealthBuilding</h1>
-<p>Authorization successful. You may close this tab.</p>
+<div class="wrap">
+  <h1>@DailyWealthBuilding</h1>
+  <p>Automated personal finance education channel.<br>
+  Building daily wealth-building content.</p>
+  <div class="links">
+    <a href="tos.html">Terms of Service</a>
+    <a href="privacy.html">Privacy Policy</a>
+  </div>
+  <p class="tag">DAILY WEALTH BUILDING · EST. 2026</p>
 </div>
 </body>
 </html>
