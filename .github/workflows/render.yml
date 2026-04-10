@@ -2,13 +2,18 @@ name: Render DWB Videos
 
 on:
   schedule:
-    - cron: '0 6 * * 1'  # Monday 6AM UTC = 9AM EAT
+    - cron: '0 6 * * *'   # Daily 6AM UTC = 9AM EAT -- one video per day
+    # Add more crons here later for 4x/day: '0 9,12,15,18 * * *'
   workflow_dispatch:
     inputs:
       days_override:
-        description: 'Specific days only, comma-separated (e.g. day36,day37). Leave blank to auto-detect.'
+        description: 'Force specific days (e.g. day36,day37). Leave blank to auto-generate via Groq.'
         required: false
         default: ''
+      skip_groq_gen:
+        description: 'Set to true to skip Groq generation and use existing content files'
+        required: false
+        default: 'false'
 
 jobs:
   render:
@@ -29,12 +34,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Google Fonts (for Remotion render)
+      - name: Install Google Fonts
         run: |
-          mkdir -p /tmp/fonts
-          # Download new premium fonts for text overlays
           curl -sL "https://fonts.googleapis.com/css2?family=Archivo+Black&family=Barlow+Condensed:wght@700;800;900&family=Space+Grotesk:wght@700&display=swap" -o /dev/null
-          # Install fontconfig for system font support
           sudo apt-get install -y fonts-liberation fontconfig -q --fix-missing || true
           echo "Fonts ready"
 
@@ -46,13 +48,386 @@ jobs:
           mkdir -p public/videos
           mkdir -p public/music
           mkdir -p public/sfx
+          mkdir -p public/photos
           mkdir -p out
           mkdir -p out/thumbs
           mkdir -p out/gifs
-          mkdir -p out/teasers
           mkdir -p out/srt
-          mkdir -p out/chapters
 
+      # =========================================================================
+      # STEP: GROQ SCRIPT GENERATION
+      # Runs when days_override is blank and skip_groq_gen is false.
+      # Reads video-counter.json, fetches trending context, generates fresh
+      # script via Groq, writes src/current-video.js + out/.week_info.json.
+      # =========================================================================
+      - name: Generate video script via Groq AI
+        if: ${{ github.event.inputs.days_override == '' && github.event.inputs.skip_groq_gen != 'true' }}
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          sudo apt-get install -y ffmpeg -q --fix-missing 2>/dev/null || true
+          node << 'EOF'
+          const fs    = require('fs');
+          const https = require('https');
+
+          const GROQ_KEY = process.env.GROQ_API_KEY || '';
+          const NTFY     = process.env.NTFY_TOPIC    || '';
+
+          // -- 1. Read or init video counter --
+          let counter = { nextDay: 50, lastRendered: 'day49', lastRenderedAt: '' };
+          try { counter = JSON.parse(fs.readFileSync('video-counter.json', 'utf8')); } catch(e) {}
+          const dayNum = counter.nextDay;
+          const dayId  = 'day' + dayNum;
+          console.log('Generating script for: ' + dayId);
+
+          // -- 2. Read content history --
+          let history = [];
+          try { history = JSON.parse(fs.readFileSync('content-history.json', 'utf8')); } catch(e) {}
+          const recentTopics = history.slice(-25).map(function(h) { return h.title; }).join(' | ');
+
+          // -- 3. Ashley idea pool --
+          const ASHLEY_IDEAS = [
+            'The 3-account money system every wealthy person uses (checking, savings, investment)',
+            'Why your salary is your most dangerous asset in 2026',
+            'The 24-hour rule that permanently stops impulse spending',
+            'Why renting is not throwing money away (the actual math no one shows)',
+            'The debt payoff order that saves the most money (not minimum payments)',
+            'What wealthy people do with their first $1,000 vs everyone else',
+            'The one tax move that reduces your bill by up to 30% legally',
+            'How inflation silently steals 3% of your money every single year',
+            'The automatic money system that runs without willpower or discipline',
+            'Why most budgets fail by week two -- and the fix that actually works',
+            'The investment account that has beaten savings accounts every decade for 100 years',
+            'Why credit cards can make you rich if you know this one rule',
+            'The side hustle that earned nothing for 60 days then paid rent in month 3',
+            'How to negotiate your salary when you think you have no leverage',
+            'The wealth gap is not about income -- its about what you do with it',
+            'Why the stock market is not gambling if you know this one difference',
+            'The money habit that separates millionaires from everyone else at age 30',
+            'How to make money while you sleep (and its not what influencers sell)',
+            'The emergency fund math most people get wrong (its not 3 months)',
+            'Why paying off debt first is wrong for half of people (the math)',
+            'The compound effect of spending $15/day vs investing it from age 22',
+            'What banks do not want you to know about high-yield savings accounts',
+            'The one financial decision that changes everything -- and takes 15 minutes',
+            'Why most financial advice was written for people who had pensions',
+            'The income streams that work without showing your face or going viral',
+          ];
+          const ideaIdx  = dayNum % ASHLEY_IDEAS.length;
+          const mainIdea = ASHLEY_IDEAS[ideaIdx];
+          const extraIdea = ASHLEY_IDEAS[(ideaIdx + 7) % ASHLEY_IDEAS.length];
+
+          // -- 4. Build Groq prompt (no template literals) --
+          const prompt = 'You are Ashley, AI script writer for @DailyWealthBuilding -- a faceless automated personal finance YouTube Shorts channel.\n\n' +
+            'CHANNEL RULES:\n' +
+            '- Target: Level 4 Unaware Audience (they do not know they have a money problem)\n' +
+            '- Format: 30-second vertical video, 900 frames at 30fps, 1080x1920\n' +
+            '- Accent color: #CAFF00 (acid yellow-green)\n' +
+            '- Maximum 5 overlays per video\n\n' +
+            'RECENT TOPICS (do NOT repeat these):\n' +
+            (recentTopics || 'none yet') + '\n\n' +
+            'IDEAS TO BUILD ON (pick one or combine):\n' +
+            '1. ' + mainIdea + '\n' +
+            '2. ' + extraIdea + '\n\n' +
+            'OVERLAY TIMING (900 frames = 30 seconds):\n' +
+            '- [0] HOOK: startFrame 0, endFrame 90 (3s) -- ONE sentence. Stops the scroll.\n' +
+            '- [1] TRUTH: startFrame 90, endFrame 270 (6s) -- The uncomfortable reality\n' +
+            '- [2] PROOF: startFrame 270, endFrame 450 (6s) -- Data or contrast or story\n' +
+            '- [3] SYSTEM: startFrame 450, endFrame 720 (9s) -- Simple actionable framework\n' +
+            '- [4] CTA: startFrame 720, endFrame 900 (6s) -- Comment bait + follow ask\n\n' +
+            'STYLE RULES:\n' +
+            '- Font Anton: hooks and CTAs. Font Montserrat: body text.\n' +
+            '- Hook fontSize: 86-90. Body fontSize: 70-78. CTA fontSize: 80-84.\n' +
+            '- Hook color: #CAFF00. Body alternates #FFFFFF and #FFD700. CTA: #CAFF00.\n' +
+            '- All overlays need stroke: {"size": 3, "color": "#000000"} for Anton, {"size": 2, "color": "#000000"} for Montserrat.\n' +
+            '- Animations (pick from this list only): zoom-punch, word-bounce, stagger, blur-in, fade, kinetic, flip-up, split-reveal, letter-drop, panel-split, glitch\n' +
+            '- NO highlight-box animation ever.\n' +
+            '- Hook position: middle. Body: middle. CTA: bottom-center.\n\n' +
+            'B-ROLL QUERIES (6 required, each must match the overlay section visually):\n' +
+            '- Query 1 matches HOOK (shock / surprising visual)\n' +
+            '- Query 2 matches TRUTH (pain point / relatable struggle)\n' +
+            '- Query 3 matches PROOF (contrast / data visualization / lifestyle gap)\n' +
+            '- Query 4 matches SYSTEM (planning / action / working)\n' +
+            '- Query 5 = aspirational outcome footage\n' +
+            '- Query 6 = engagement energy (city life / people reacting / trending visual)\n' +
+            '- Each query must end with "vertical" and be 4-6 words specific\n\n' +
+            'STRICT RULES:\n' +
+            '- No income promises or specific dollar earning claims\n' +
+            '- No medical claims\n' +
+            '- musicMood must be one of: punchy, motivational, confident, dramatic, focused, rebellious, uplifting\n' +
+            '- YouTube description: 150-250 words, use arrow bullets\n' +
+            '- TikTok caption: max 150 chars, ends with 👇, 3-4 hashtags\n\n' +
+            'Return ONLY valid JSON. No markdown. No backticks. No explanation. Just JSON.\n\n' +
+            'FORMAT:\n' +
+            '{"title":"internal title","musicMood":"punchy","bRollQueries":["q1 vertical","q2 vertical","q3 vertical","q4 vertical","q5 vertical","q6 vertical"],"overlays":[{"text":"HOOK","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"zoom-punch","startFrame":0,"endFrame":90,"position":"middle","fontSize":88},{"text":"truth text","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"word-bounce","startFrame":90,"endFrame":270,"position":"middle","fontSize":76},{"text":"proof","font":"Montserrat","color":"#FFD700","stroke":{"size":2,"color":"#000000"},"animation":"blur-in","startFrame":270,"endFrame":450,"position":"middle","fontSize":76},{"text":"system","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"stagger","startFrame":450,"endFrame":720,"position":"middle","fontSize":72},{"text":"CTA text 👇","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"kinetic","startFrame":720,"endFrame":900,"position":"bottom-center","fontSize":82}],"youtubeTitle":"Title | Day ' + dayNum + '/90 | Daily Wealth Building","youtubeDescription":"Day ' + dayNum + ' of 90 description...","tiktokCaption":"caption 👇 #day' + dayNum + '","pinnedComment":"key insight"}';
+
+          // -- 5. Call Groq --
+          function callGroq(prompt) {
+            return new Promise(function(resolve, reject) {
+              const body = JSON.stringify({
+                model:       'llama-3.3-70b-versatile',
+                max_tokens:  2000,
+                temperature: 0.8,
+                messages:    [{ role: 'user', content: prompt }],
+              });
+              const req = https.request({
+                hostname: 'api.groq.com',
+                path:     '/openai/v1/chat/completions',
+                method:   'POST',
+                headers:  {
+                  'Content-Type':   'application/json',
+                  'Content-Length': Buffer.byteLength(body),
+                  'Authorization':  'Bearer ' + GROQ_KEY,
+                },
+              }, function(res) {
+                let data = '';
+                res.on('data', function(d) { data += d; });
+                res.on('end', function() { resolve({ status: res.statusCode, body: data }); });
+              });
+              req.on('error', reject);
+              req.write(body);
+              req.end();
+            });
+          }
+
+          function sendNtfy(message, title) {
+            if (!NTFY) return Promise.resolve();
+            const data = Buffer.from(message);
+            return new Promise(function(resolve) {
+              const safeTitle = title.replace(/[^\x20-\x7E]/g, '').trim();
+              const req = https.request({
+                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
+                headers: {
+                  'Content-Type': 'text/plain', 'Content-Length': data.length,
+                  'Title': safeTitle, 'Tags': 'robot,pencil', 'Priority': 'default',
+                },
+              }, function(res) { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
+              req.on('error', function() { resolve(); });
+              req.write(data);
+              req.end();
+            });
+          }
+
+          (async function() {
+            if (!GROQ_KEY) {
+              console.log('GROQ_API_KEY not set -- skipping generation');
+              process.exit(0);
+            }
+
+            try {
+              console.log('Calling Groq to generate script for ' + dayId + '...');
+              const res  = await callGroq(prompt);
+
+              if (res.status !== 200) {
+                console.log('Groq error: HTTP ' + res.status);
+                console.log(res.body.slice(0, 300));
+                process.exit(0);
+              }
+
+              const apiData = JSON.parse(res.body);
+              let raw = (apiData.choices && apiData.choices[0] && apiData.choices[0].message && apiData.choices[0].message.content) || '';
+              raw = raw.replace(/```json|```/g, '').trim();
+
+              let videoData;
+              try {
+                videoData = JSON.parse(raw);
+              } catch(e) {
+                console.log('Failed to parse Groq JSON: ' + e.message);
+                console.log('Raw (first 500): ' + raw.slice(0, 500));
+                process.exit(0);
+              }
+
+              // Inject required fields
+              videoData.id       = dayId;
+              videoData.filename = dayId + '_final.mp4';
+              videoData.music    = dayId + '.mp3';
+
+              // Validate overlays
+              if (!videoData.overlays || videoData.overlays.length === 0) {
+                console.log('ERROR: Groq returned no overlays');
+                process.exit(1);
+              }
+
+              // Validate bRollQueries -- must have 6
+              if (!videoData.bRollQueries || videoData.bRollQueries.length < 6) {
+                console.log('WARNING: Less than 6 bRollQueries, padding...');
+                const defaultQ = 'finance wealth success city lifestyle vertical';
+                while ((videoData.bRollQueries || []).length < 6) {
+                  if (!videoData.bRollQueries) videoData.bRollQueries = [];
+                  videoData.bRollQueries.push(defaultQ);
+                }
+              }
+
+              // Write src/current-video.js
+              const jsContent = '// Auto-generated by Groq AI for ' + dayId + ' -- ' + new Date().toISOString().slice(0, 10) + '\n' +
+                'export const currentVideo = ' + JSON.stringify(videoData, null, 2) + ';\n';
+              fs.mkdirSync('src', { recursive: true });
+              fs.writeFileSync('src/current-video.js', jsContent);
+              console.log('Wrote src/current-video.js');
+
+              // Build and write out/.week_info.json
+              const dayAssets = {};
+              dayAssets[dayId] = videoData.bRollQueries.map(function(q, i) {
+                return { id: dayId + '_clip' + (i + 1), q: q };
+              });
+
+              const dayMeta = {};
+              dayMeta[dayId] = {
+                youtubeTitle:       videoData.youtubeTitle       || '',
+                youtubeDescription: videoData.youtubeDescription || '',
+                tiktokCaption:      videoData.tiktokCaption      || '',
+                pinnedComment:      videoData.pinnedComment      || '',
+                music:              dayId + '.mp3',
+                musicMood:          videoData.musicMood          || 'motivational',
+              };
+
+              fs.mkdirSync('out', { recursive: true });
+              fs.writeFileSync('out/.week_info.json', JSON.stringify({
+                week:     'groq-generated',
+                days:     [dayId],
+                dayAssets: dayAssets,
+                dayMeta:   dayMeta,
+              }, null, 2));
+              console.log('Wrote out/.week_info.json');
+
+              // Update content-history
+              history.push({
+                day:        dayId,
+                title:      videoData.title || videoData.youtubeTitle || dayId,
+                musicMood:  videoData.musicMood || '',
+                hook:       (videoData.overlays[0] || {}).text || '',
+                generatedAt: new Date().toISOString(),
+              });
+              if (history.length > 60) history = history.slice(-60);
+              fs.writeFileSync('content-history.json', JSON.stringify(history, null, 2));
+              console.log('Updated content-history.json (' + history.length + ' entries)');
+
+              // Report
+              console.log('\n=== GROQ GENERATION COMPLETE ===');
+              console.log('Day:    ' + dayId);
+              console.log('Title:  ' + videoData.title);
+              console.log('Hook:   ' + ((videoData.overlays[0] || {}).text || '').replace(/\n/g, ' '));
+              console.log('Clips:  ' + videoData.bRollQueries.length);
+              console.log('Mood:   ' + videoData.musicMood);
+
+              await sendNtfy(
+                'Script generated for ' + dayId + '\n' +
+                'Title: ' + (videoData.title || '') + '\n' +
+                'Hook: ' + ((videoData.overlays[0] || {}).text || '').replace(/\n/g, ' ').slice(0, 80) + '\n' +
+                'Clips: ' + videoData.bRollQueries.length + ' queries ready',
+                'DWB Script Ready -- ' + dayId
+              );
+
+            } catch(e) {
+              console.log('Groq generation error: ' + e.message);
+              // Non-fatal: pipeline will fall back to content file detection
+            }
+          })();
+          EOF
+
+      # =========================================================================
+      # STEP: DETECT ACTIVE WEEK
+      # If week_info already written by Groq, just export env vars.
+      # Otherwise, auto-detect from content files.
+      # =========================================================================
+      - name: Detect active week from content files
+        run: |
+          if [ -f "out/.week_info.json" ] && [ "${{ github.event.inputs.skip_groq_gen }}" != "true" ] && [ -z "${{ github.event.inputs.days_override }}" ]; then
+            echo "Using Groq-generated week info"
+            node << 'JSEOF'
+            const fs = require('fs');
+            const info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8'));
+            const envFile = process.env.GITHUB_ENV;
+            if (envFile) {
+              fs.appendFileSync(envFile, 'ACTIVE_WEEK=' + info.week + '\n');
+              fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + info.days.join(' ') + '\n');
+            }
+            console.log('Active week: ' + info.week + ' | Days: ' + info.days.join(', '));
+            JSEOF
+          else
+            echo "Auto-detecting from content files"
+            node << 'EOF'
+            const fs   = require('fs');
+            const path = require('path');
+            const srcDir      = path.join(process.cwd(), 'src');
+            const allFiles    = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
+            const contentFiles = allFiles.filter(function(f) { return f.match(/^week\d+-content\.js$/); });
+
+            if (contentFiles.length === 0) {
+              console.log('ERROR: No week content files found in src/');
+              process.exit(1);
+            }
+
+            const weekNums = contentFiles
+              .map(function(f) { return parseInt(f.match(/week(\d+)/)[1]); })
+              .sort(function(a, b) { return b - a; });
+            const activeWeek = weekNums[0];
+            const activeFile = path.join(srcDir, 'week' + activeWeek + '-content.js');
+            console.log('Active week file: ' + activeFile);
+
+            const source = fs.readFileSync(activeFile, 'utf8');
+            let entries = [];
+            const defaultMatch = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
+            const namedMatch   = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
+            const arrayStr     = defaultMatch ? defaultMatch[1] : (namedMatch ? namedMatch[1] : null);
+
+            if (!arrayStr) {
+              console.log('ERROR: Could not parse content array from ' + activeFile);
+              process.exit(1);
+            }
+
+            try { entries = eval(arrayStr); } catch(e) {
+              console.log('ERROR: eval failed: ' + e.message);
+              process.exit(1);
+            }
+
+            const days = entries.map(function(e) { return e.id; }).filter(Boolean);
+            console.log('Days detected: ' + days.join(', '));
+
+            const dayAssets = {};
+            for (const entry of entries) {
+              if (!entry.id || (!entry.pexelsSearchTerms && !entry.bRollQueries)) continue;
+              dayAssets[entry.id] = (entry.bRollQueries || entry.pexelsSearchTerms)
+                .slice(0, 6)
+                .map(function(q, i) { return { id: entry.id + '_clip' + (i + 1), q: q }; });
+            }
+
+            const dayMeta = {};
+            for (const entry of entries) {
+              if (!entry.id) continue;
+              dayMeta[entry.id] = {
+                youtubeTitle:       entry.youtubeTitle       || '',
+                youtubeDescription: entry.youtubeDescription || '',
+                tiktokCaption:      entry.tiktokCaption      || '',
+                pinnedComment:      entry.pinnedComment      || '',
+                music:              entry.music              || '',
+                musicMood:          entry.musicMood          || '',
+              };
+            }
+
+            fs.mkdirSync('out', { recursive: true });
+            fs.writeFileSync('out/.week_info.json', JSON.stringify({
+              week: 'week' + activeWeek,
+              days,
+              dayAssets,
+              dayMeta,
+            }, null, 2));
+
+            const envFile = process.env.GITHUB_ENV;
+            if (envFile) {
+              fs.appendFileSync(envFile, 'ACTIVE_WEEK=week' + activeWeek + '\n');
+              fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + days.join(' ') + '\n');
+            }
+
+            console.log('Active week: week' + activeWeek);
+            console.log('Week info written to out/.week_info.json');
+            EOF
+          fi
+
+      # =========================================================================
+      # STEP: DOWNLOAD SFX
+      # =========================================================================
       - name: Download SFX (Freesound CDN + ffmpeg silent fallback)
         run: |
           sudo apt-get install -y ffmpeg -q --fix-missing 2>/dev/null || true
@@ -79,39 +454,39 @@ jobs:
               'https://cdn.freesound.org/previews/170/170380_1517528-lq.mp3',
             ],
           };
-          const download = (url, dest) => new Promise((resolve, reject) => {
-            const file = fs.createWriteStream(dest);
-            const get  = (u) => {
-              const lib = u.startsWith('https') ? https : http;
-              lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, res => {
-                if (res.statusCode === 301 || res.statusCode === 302) {
-                  file.close(); return get(res.headers.location);
-                }
-                if (res.statusCode !== 200) { file.close(); reject(new Error('HTTP ' + res.statusCode)); return; }
-                res.pipe(file);
-                file.on('finish', () => { file.close(); resolve(); });
-              }).on('error', e => { file.close(); reject(e); });
-            };
-            get(url);
-          });
-          (async () => {
-            for (const [slot, pool] of Object.entries(SFX_POOLS)) {
+          const download = function(url, dest) {
+            return new Promise(function(resolve, reject) {
+              const file = fs.createWriteStream(dest);
+              const get  = function(u) {
+                const lib = u.startsWith('https') ? https : http;
+                lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, function(res) {
+                  if (res.statusCode === 301 || res.statusCode === 302) {
+                    file.close(); return get(res.headers.location);
+                  }
+                  if (res.statusCode !== 200) { file.close(); reject(new Error('HTTP ' + res.statusCode)); return; }
+                  res.pipe(file);
+                  file.on('finish', function() { file.close(); resolve(); });
+                }).on('error', function(e) { file.close(); reject(e); });
+              };
+              get(url);
+            });
+          };
+          (async function() {
+            for (const slot of Object.keys(SFX_POOLS)) {
+              const pool = SFX_POOLS[slot];
               const dest = 'public/sfx/' + slot + '.mp3';
               if (fs.existsSync(dest)) fs.unlinkSync(dest);
-              const shuffled = [...pool].sort(() => Math.random() - 0.5);
+              const shuffled = pool.slice().sort(function() { return Math.random() - 0.5; });
               let ok = false;
               for (const url of shuffled) {
                 try {
                   await download(url, dest);
                   const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-                  if (size > 5000) {
-                    console.log('SFX OK: ' + slot + ' (' + Math.round(size/1024) + 'KB)');
-                    ok = true; break;
-                  }
+                  if (size > 5000) { console.log('SFX OK: ' + slot); ok = true; break; }
                   if (fs.existsSync(dest)) fs.unlinkSync(dest);
                 } catch(e) { if (fs.existsSync(dest)) fs.unlinkSync(dest); }
               }
-              if (!ok) console.log('WARNING: Could not download ' + slot + ' -- silent fallback will be used');
+              if (!ok) console.log('WARNING: ' + slot + ' -- silent fallback will be used');
             }
             console.log('SFX download complete');
           })();
@@ -120,97 +495,15 @@ jobs:
             FILE="public/sfx/${SFX}.mp3"
             if [ ! -f "$FILE" ] || [ ! -s "$FILE" ]; then
               echo "Creating silent fallback for ${SFX}.mp3"
-              if command -v ffmpeg &> /dev/null; then
-                ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -q:a 9 -acodec libmp3lame "$FILE" -y -loglevel error 2>/dev/null || true
-              else
-                node -e "const fs=require('fs');fs.writeFileSync('${FILE}',Buffer.alloc(1024,0));console.log('silent fallback: ${SFX}.mp3');"
-              fi
+              ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -q:a 9 -acodec libmp3lame "$FILE" -y -loglevel error 2>/dev/null || true
             fi
           done
           echo "SFX check complete"
 
-      - name: Detect active week from content files
-        run: |
-          node << 'EOF'
-          const fs   = require('fs');
-          const path = require('path');
-          const srcDir      = path.join(process.cwd(), 'src');
-          const allFiles    = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
-          const contentFiles = allFiles.filter(f => f.match(/^week\d+-content\.js$/));
-
-          if (contentFiles.length === 0) {
-            console.log('ERROR: No week content files found in src/');
-            process.exit(1);
-          }
-
-          const weekNums = contentFiles
-            .map(f => parseInt(f.match(/week(\d+)/)[1]))
-            .sort((a, b) => b - a);
-          const activeWeek = weekNums[0];
-          const activeFile = path.join(srcDir, 'week' + activeWeek + '-content.js');
-
-          console.log('Active week file: ' + activeFile);
-
-          const source = fs.readFileSync(activeFile, 'utf8');
-
-          let entries = [];
-          const defaultMatch = source.match(/export\s+default\s+(\[[\s\S]*\]);?\s*$/m);
-          const namedMatch   = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-          const arrayStr     = defaultMatch ? defaultMatch[1] : (namedMatch ? namedMatch[1] : null);
-
-          if (!arrayStr) {
-            console.log('ERROR: Could not parse content array from ' + activeFile);
-            process.exit(1);
-          }
-
-          try { entries = eval(arrayStr); } catch(e) {
-            console.log('ERROR: eval failed: ' + e.message);
-            process.exit(1);
-          }
-
-          const days = entries.map(e => e.id).filter(Boolean);
-          console.log('Days detected: ' + days.join(', '));
-
-          const dayAssets = {};
-          for (const entry of entries) {
-            if (!entry.id || (!entry.pexelsSearchTerms && !entry.bRollQueries)) continue;
-            dayAssets[entry.id] = (entry.bRollQueries || entry.pexelsSearchTerms)
-              .slice(0, 4)
-              .map((q, i) => ({ id: entry.id + '_clip' + (i + 1), q }));
-          }
-
-          const dayMeta = {};
-          for (const entry of entries) {
-            if (!entry.id) continue;
-            dayMeta[entry.id] = {
-              youtubeTitle:       entry.youtubeTitle       || '',
-              youtubeDescription: entry.youtubeDescription || '',
-              tiktokCaption:      entry.tiktokCaption      || '',
-              pinnedComment:      entry.pinnedComment      || '',
-              music:              entry.music              || '',
-              musicMood:          entry.musicMood          || '',
-            };
-          }
-
-          fs.mkdirSync('out', { recursive: true });
-          fs.writeFileSync('out/.week_info.json', JSON.stringify({
-            week: 'week' + activeWeek,
-            days,
-            dayAssets,
-            dayMeta,
-          }, null, 2));
-
-          const envFile = process.env.GITHUB_ENV;
-          if (envFile) {
-            fs.appendFileSync(envFile, 'ACTIVE_WEEK=week' + activeWeek + '\n');
-            fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + days.join(' ') + '\n');
-          }
-
-          console.log('Active week: week' + activeWeek);
-          console.log('Week info written to out/.week_info.json');
-          EOF
-
-      - name: Download music per day (Jamendo trending -> FMA -> Pixabay -> prev track)
+      # =========================================================================
+      # STEP: DOWNLOAD MUSIC
+      # =========================================================================
+      - name: Download music per day (Jamendo -> FMA -> Pixabay -> prev track)
         env:
           JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
@@ -220,46 +513,48 @@ jobs:
           const https = require('https');
           const http  = require('http');
           const fs    = require('fs');
-          const path  = require('path');
 
-          const JAMENDO_KEY  = process.env.JAMENDO_CLIENT_ID || '';
-          const PIXABAY_KEY  = process.env.PIXABAY_API_KEY   || '';
+          const JAMENDO_KEY = process.env.JAMENDO_CLIENT_ID || '';
+          const PIXABAY_KEY = process.env.PIXABAY_API_KEY   || '';
 
-          const JAMENDO_TAGS  = { punchy:'energetic+upbeat', motivational:'motivational+positive', confident:'jazz+cool', dramatic:'epic+dramatic', focused:'ambient+focus', rebellious:'rock+energetic', uplifting:'uplifting+happy', melancholic:'sad+melancholic' };
+          const JAMENDO_TAGS  = { punchy:'energetic+upbeat', motivational:'motivational+positive', confident:'jazz+cool', dramatic:'epic+dramatic', focused:'ambient+focus', rebellious:'rock+energetic', uplifting:'uplifting+happy', melancholic:'sad+melancholic', chill:'chill+lofi', emotional:'emotional+piano', epic:'epic+orchestral' };
           const PIXABAY_MOODS = { punchy:'energetic', motivational:'uplifting', confident:'corporate', dramatic:'dramatic', focused:'calm', rebellious:'upbeat', uplifting:'happy', melancholic:'melancholic' };
           const FMA_GENRES    = { punchy:'Electronic', motivational:'Hip-Hop', confident:'Jazz', dramatic:'Classical', focused:'Ambient', rebellious:'Rock', uplifting:'Pop', melancholic:'Ambient' };
           const DAY_MOODS     = {};
-          for (let i=1;i<=90;i++) DAY_MOODS[i] = ['punchy','motivational','confident','dramatic','focused','rebellious','uplifting','melancholic'][i%8];
+          for (let i = 1; i <= 90; i++) DAY_MOODS[i] = ['punchy','motivational','confident','dramatic','focused','rebellious','uplifting','melancholic'][i % 8];
 
-          const fetchJSON = (url) => new Promise((resolve, reject) => {
-            const lib = url.startsWith('https') ? https : http;
-            lib.get(url, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, res => {
-              if (res.statusCode === 301 || res.statusCode === 302)
-                return fetchJSON(res.headers.location).then(resolve).catch(reject);
-              let data = '';
-              res.on('data', d => data += d);
-              res.on('end', () => {
-                try { resolve(JSON.parse(data)); }
-                catch(e) { reject(new Error('JSON parse failed: ' + url)); }
-              });
-            }).on('error', reject);
-          });
+          const fetchJSON = function(url) {
+            return new Promise(function(resolve, reject) {
+              const lib = url.startsWith('https') ? https : http;
+              lib.get(url, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, function(res) {
+                if (res.statusCode === 301 || res.statusCode === 302)
+                  return fetchJSON(res.headers.location).then(resolve).catch(reject);
+                let data = '';
+                res.on('data', function(d) { data += d; });
+                res.on('end', function() {
+                  try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('JSON parse failed')); }
+                });
+              }).on('error', reject);
+            });
+          };
 
-          const downloadFile = (url, dest) => new Promise((resolve, reject) => {
-            const file = fs.createWriteStream(dest);
-            const get  = (u) => {
-              const lib = u.startsWith('https') ? https : http;
-              lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, res => {
-                if (res.statusCode === 301 || res.statusCode === 302) { file.close(); return get(res.headers.location); }
-                if (res.statusCode !== 200) { file.close(); reject(new Error('HTTP ' + res.statusCode)); return; }
-                res.pipe(file);
-                file.on('finish', () => { file.close(); resolve(); });
-              }).on('error', e => { file.close(); reject(e); });
-            };
-            get(url);
-          });
+          const downloadFile = function(url, dest) {
+            return new Promise(function(resolve, reject) {
+              const file = fs.createWriteStream(dest);
+              const get  = function(u) {
+                const lib = u.startsWith('https') ? https : http;
+                lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, function(res) {
+                  if (res.statusCode === 301 || res.statusCode === 302) { file.close(); return get(res.headers.location); }
+                  if (res.statusCode !== 200) { file.close(); reject(new Error('HTTP ' + res.statusCode)); return; }
+                  res.pipe(file);
+                  file.on('finish', function() { file.close(); resolve(); });
+                }).on('error', function(e) { file.close(); reject(e); });
+              };
+              get(url);
+            });
+          };
 
-          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
 
           async function tryJamendo(mood, dest) {
             if (!JAMENDO_KEY) return false;
@@ -267,7 +562,7 @@ jobs:
               const tag  = JAMENDO_TAGS[mood] || 'motivational+upbeat';
               const url  = 'https://api.jamendo.com/v3.0/tracks/?client_id=' + JAMENDO_KEY + '&format=json&limit=10&tags=' + tag + '&order=popularity_week&audioformat=mp32&license_cc=1';
               const data = await fetchJSON(url);
-              const tracks = (data.results || []).filter(t => t.audio);
+              const tracks = (data.results || []).filter(function(t) { return t.audio; });
               if (tracks.length === 0) throw new Error('No results');
               const pick = tracks[Math.floor(Math.random() * Math.min(5, tracks.length))];
               console.log('Jamendo: "' + pick.name + '" by ' + pick.artist_name);
@@ -283,52 +578,29 @@ jobs:
             }
           }
 
-          async function tryFMA(mood, dest) {
-            try {
-              const genre = FMA_GENRES[mood] || 'Electronic';
-              const url   = 'https://freemusicarchive.org/api/get/tracks.json?genre_title=' + encodeURIComponent(genre) + '&limit=10&sort=track_date_recorded&d=1';
-              const data  = await fetchJSON(url);
-              const tracks = (data.dataset || []).filter(t => t.track_url);
-              if (tracks.length === 0) throw new Error('No results');
-              for (const track of tracks.slice(0, 5)) {
-                try {
-                  await downloadFile(track.track_url, dest);
-                  const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-                  if (size > 50000) { console.log('FMA OK: "' + track.track_title + '"'); return true; }
-                  if (fs.existsSync(dest)) fs.unlinkSync(dest);
-                } catch(e) {}
-              }
-              throw new Error('All FMA tracks failed');
-            } catch(e) {
-              console.log('FMA failed: ' + e.message);
-              if (fs.existsSync(dest)) fs.unlinkSync(dest);
-              return false;
-            }
-          }
-
           async function tryPixabay(mood, dest) {
             if (!PIXABAY_KEY) return false;
             try {
               const pmood = PIXABAY_MOODS[mood] || 'upbeat';
               const url   = 'https://pixabay.com/api/videos/music/?key=' + PIXABAY_KEY + '&mood=' + pmood + '&per_page=10';
               const data  = await fetchJSON(url);
-              const hits  = (data.hits || []).filter(h => h.audio);
+              const hits  = (data.hits || []).filter(function(h) { return h.audio; });
               if (hits.length === 0) throw new Error('No results');
               const pick  = hits[Math.floor(Math.random() * Math.min(5, hits.length))];
-              console.log('Pixabay: "' + pick.title + '"');
+              console.log('Pixabay music: "' + pick.title + '"');
               await downloadFile(pick.audio, dest);
               const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
               if (size > 50000) return true;
               if (fs.existsSync(dest)) fs.unlinkSync(dest);
               throw new Error('File too small');
             } catch(e) {
-              console.log('Pixabay failed: ' + e.message);
+              console.log('Pixabay music failed: ' + e.message);
               if (fs.existsSync(dest)) fs.unlinkSync(dest);
               return false;
             }
           }
 
-          (async () => {
+          (async function() {
             let info = { days: [], dayMeta: {} };
             try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
             const days    = info.days    || [];
@@ -344,7 +616,7 @@ jobs:
               if (fs.existsSync(dest) && fs.statSync(dest).size > 50000) {
                 console.log('SKIP (cached): ' + day);
                 skipped++;
-                results.push({ day, status: 'cached' });
+                results.push({ day: day, status: 'cached' });
                 continue;
               }
               if (fs.existsSync(dest)) fs.unlinkSync(dest);
@@ -352,7 +624,6 @@ jobs:
               const mood   = (dayMeta[day] && dayMeta[day].musicMood) || DAY_MOODS[dayNum] || 'motivational';
               console.log('\n--- ' + day + ' | mood: ' + mood + ' ---');
               let ok = await tryJamendo(mood, dest);
-              if (!ok) { await sleep(1000); ok = await tryFMA(mood, dest); }
               if (!ok) { await sleep(1000); ok = await tryPixabay(mood, dest); }
               if (!ok) {
                 let prev = dayNum - 1;
@@ -366,8 +637,8 @@ jobs:
                   prev--;
                 }
               }
-              if (ok) { downloaded++; results.push({ day, status: 'downloaded', mood }); }
-              else    { failed++;     results.push({ day, status: 'failed',     mood }); console.log('FINAL FAIL: ' + day); }
+              if (ok) { downloaded++; results.push({ day: day, status: 'downloaded', mood: mood }); }
+              else    { failed++;     results.push({ day: day, status: 'failed',     mood: mood }); }
               await sleep(500);
             }
 
@@ -383,63 +654,51 @@ jobs:
         run: |
           node << 'EOF'
           const https = require('https');
-          const http  = require('http');
           const fs    = require('fs');
           const ENDPOINTS = [
             'https://ads.tiktok.com/creative_radar_api/v1/popular_trend/music/list?period=7&page=1&limit=10',
-            'https://www.tiktok.com/api/music/list/?count=10&cursor=0',
           ];
-          const fetchJSON = (url) => new Promise((resolve, reject) => {
-            const lib = url.startsWith('https') ? https : http;
-            lib.get(url, {
-              headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json',
-                'Referer': 'https://ads.tiktok.com/',
-              }
-            }, res => {
-              if (res.statusCode === 301 || res.statusCode === 302)
-                return fetchJSON(res.headers.location).then(resolve).catch(reject);
-              let data = '';
-              res.on('data', d => data += d);
-              res.on('end', () => {
-                try { resolve(JSON.parse(data)); }
-                catch(e) { reject(new Error('Not JSON')); }
-              });
-            }).on('error', reject);
-          });
-
-          (async () => {
+          const fetchJSON = function(url) {
+            return new Promise(function(resolve, reject) {
+              https.get(url, {
+                headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                  'Accept': 'application/json',
+                  'Referer': 'https://ads.tiktok.com/',
+                }
+              }, function(res) {
+                if (res.statusCode === 301 || res.statusCode === 302)
+                  return fetchJSON(res.headers.location).then(resolve).catch(reject);
+                let data = '';
+                res.on('data', function(d) { data += d; });
+                res.on('end', function() {
+                  try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('Not JSON')); }
+                });
+              }).on('error', reject);
+            });
+          };
+          (async function() {
             let sounds = [];
             for (const url of ENDPOINTS) {
               try {
                 const data  = await fetchJSON(url);
-                const items = data?.data?.list || data?.music_list || data?.data?.music_list || [];
+                const items = (data && data.data && data.data.list) || [];
                 if (items.length > 0) {
-                  sounds = items.slice(0, 10).map((item, i) => ({
-                    rank: i + 1,
-                    title:      item.music_info?.title  || item.title  || 'Trending #' + (i+1),
-                    artist:     item.music_info?.author || item.author || 'Unknown',
-                    usageCount: item.post_num || item.use_count || '--',
-                    soundId:    item.music_id || item.id || null,
-                    scrapedAt:  new Date().toISOString(),
-                  }));
-                  console.log('Fetched ' + sounds.length + ' trending sounds');
+                  sounds = items.slice(0, 10).map(function(item, i) {
+                    return {
+                      rank: i + 1,
+                      title:      (item.music_info && item.music_info.title)  || 'Trending #' + (i + 1),
+                      artist:     (item.music_info && item.music_info.author) || 'Unknown',
+                      usageCount: item.post_num || '--',
+                      scrapedAt:  new Date().toISOString(),
+                    };
+                  });
                   break;
                 }
               } catch(e) { console.log('TikTok endpoint failed: ' + e.message); }
             }
-
             fs.writeFileSync('out/.trending_sounds.json', JSON.stringify(sounds, null, 2));
-
-            if (sounds.length > 0) {
-              console.log('\nTop 5 Trending This Week:');
-              sounds.slice(0, 5).forEach(s =>
-                console.log('  ' + s.rank + '. ' + s.title + ' -- ' + s.artist + ' (' + s.usageCount + ' videos)')
-              );
-            } else {
-              console.log('No trending sounds fetched (TikTok API may have rotated)');
-            }
+            console.log('Trending sounds: ' + sounds.length + ' fetched');
           })();
           EOF
 
@@ -451,6 +710,11 @@ jobs:
             echo "validate.js not found - skipping"
           fi
 
+      # =========================================================================
+      # STEP: AI HOOK SCORER
+      # FIX: Strip emoji and non-ASCII from ntfy Title header to prevent
+      # "Invalid character in header content" error.
+      # =========================================================================
       - name: AI Hook Scorer (Groq API -- pre-render quality gate)
         continue-on-error: true
         env:
@@ -461,73 +725,79 @@ jobs:
           const fs   = require('fs');
           const path = require('path');
           const https = require('https');
-          const GROQ_KEY  = process.env.GROQ_API_KEY  || '';
-          const NTFY      = process.env.NTFY_TOPIC    || '';
-          const srcDir    = path.join(process.cwd(), 'src');
-          const allFiles  = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
-          const files     = allFiles.filter(f => f.match(/^week\d+-content\.js$/));
-          const wNums   = files.map(f => parseInt(f.match(/week(\d+)/)[1])).sort((a,b) => b-a);
+          const GROQ_KEY = process.env.GROQ_API_KEY || '';
+          const NTFY     = process.env.NTFY_TOPIC   || '';
 
-          if (wNums.length === 0) {
-            console.log('No week content files found -- skipping.');
-            process.exit(0);
+          // Helper: strip non-ASCII from ntfy Title header (prevents HTTP header error)
+          function safeTitle(str) {
+            return (str || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
           }
 
-          const activeFile = path.join(srcDir, 'week' + wNums[0] + '-content.js');
-          const source     = fs.readFileSync(activeFile, 'utf8');
-
+          // Load video data from week_info
+          let info = { days: [], dayMeta: {} };
           let entries = [];
-          try {
-            const dm  = source.match(/export\s+default\s+(\[[\s\S]*\]);?\s*$/m);
-            const nm  = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-            const arr = dm ? dm[1] : (nm ? nm[1] : null);
-            if (arr) entries = eval(arr);
-          } catch(e) {
-            console.log('Could not parse content file: ' + e.message);
-            process.exit(0);
+          try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
+
+          // Check if using generated video
+          let generatedVideo = null;
+          if (fs.existsSync('src/current-video.js')) {
+            try {
+              const source = fs.readFileSync('src/current-video.js', 'utf8');
+              const match  = source.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);
+              if (match) generatedVideo = JSON.parse(match[1]);
+            } catch(e) {}
           }
 
-          if (entries.length === 0) {
-            console.log('No entries found -- skipping.');
-            process.exit(0);
+          if (generatedVideo) {
+            entries = [generatedVideo];
+          } else {
+            const srcDir   = path.join(process.cwd(), 'src');
+            const allFiles = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
+            const files    = allFiles.filter(function(f) { return f.match(/^week\d+-content\.js$/); });
+            const wNums    = files.map(function(f) { return parseInt(f.match(/week(\d+)/)[1]); }).sort(function(a,b) { return b-a; });
+
+            if (wNums.length === 0) { console.log('No content files -- skipping.'); process.exit(0); }
+
+            const activeFile = path.join(srcDir, 'week' + wNums[0] + '-content.js');
+            const source     = fs.readFileSync(activeFile, 'utf8');
+            try {
+              const dm  = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
+              const nm  = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
+              const arr = dm ? dm[1] : (nm ? nm[1] : null);
+              if (arr) entries = eval(arr);
+            } catch(e) { console.log('Could not parse content file: ' + e.message); process.exit(0); }
           }
 
-          // -- Extract hooks (overlay 0 = HOOK) --
-          const hooks = entries.map(e => ({
-            id:    e.id,
-            hook:  (e.overlays && e.overlays[0]) ? e.overlays[0].text.replace(/\n/g, ' ') : 'N/A',
-            topic: e.title || e.id,
-          }));
+          if (entries.length === 0) { console.log('No entries -- skipping.'); process.exit(0); }
 
-          console.log('Scoring ' + hooks.length + ' hooks via Groq API (free)...');
+          const hooks = entries.map(function(e) {
+            return {
+              id:   e.id,
+              hook: (e.overlays && e.overlays[0]) ? e.overlays[0].text.replace(/\n/g, ' ') : 'N/A',
+              topic: e.title || e.id,
+            };
+          });
 
-          // -- Build prompt --
+          console.log('Scoring ' + hooks.length + ' hook(s) via Groq...');
+
           const hookLines = hooks.map(function(h, i) {
-            return (i+1) + '. [' + h.id + '] Hook: "' + h.hook + '" | Topic: "' + h.topic + '"';
+            return (i + 1) + '. [' + h.id + '] Hook: "' + h.hook + '" | Topic: "' + h.topic + '"';
           }).join('\n');
 
-          const prompt = 'You are an expert short-form finance video strategist. Score each hook below on a scale of 1-10 for viral potential on TikTok and YouTube Shorts.\n\n'
-            + 'Scoring criteria:\n'
-            + '- Pattern interrupt strength (does it stop scrolling?)\n'
-            + '- Clarity (readable in under 2 seconds?)\n'
-            + '- Emotional trigger (fear, curiosity, identity, surprise?)\n'
-            + '- Specificity (concrete vs vague?)\n'
-            + '- TikTok compliance (no false claims, no income promises?)\n\n'
-            + 'Hooks to score:\n'
-            + hookLines + '\n\n'
-            + 'Respond ONLY with valid JSON, no markdown, no explanation:\n'
-            + '{"scores":[{"id":"day36","score":8,"strength":"brief strength","weakness":"brief weakness","suggestion":"improved hook text"}],"avgScore":7.5,"weakest":"day37","strongest":"day36","readyToRender":true,"summary":"one line summary"}';
+          const prompt = 'You are an expert short-form finance video strategist. Score each hook 1-10 for viral potential on TikTok and YouTube Shorts.\n\n' +
+            'Criteria: scroll-stopping power, 2-second readability, emotional trigger, specificity, compliance.\n\n' +
+            'Hooks:\n' + hookLines + '\n\n' +
+            'Respond ONLY with valid JSON:\n' +
+            '{"scores":[{"id":"day50","score":8,"strength":"brief","weakness":"brief","suggestion":"improved hook"}],"avgScore":7.5,"weakest":"day50","strongest":"day50","readyToRender":true,"summary":"one line"}';
 
-          // -- Call Groq API --
-          function callGroq(prompt) {
-            return new Promise((resolve, reject) => {
+          function callGroq(p) {
+            return new Promise(function(resolve, reject) {
               const body = JSON.stringify({
-                model:       'llama-3.3-70b-versatile',
-                max_tokens:  1000,
+                model: 'llama-3.3-70b-versatile',
+                max_tokens: 1000,
                 temperature: 0.3,
-                messages:    [{ role: 'user', content: prompt }],
+                messages: [{ role: 'user', content: p }],
               });
-
               const req = https.request({
                 hostname: 'api.groq.com',
                 path:     '/openai/v1/chat/completions',
@@ -537,10 +807,10 @@ jobs:
                   'Content-Length': Buffer.byteLength(body),
                   'Authorization':  'Bearer ' + GROQ_KEY,
                 },
-              }, res => {
+              }, function(res) {
                 let data = '';
-                res.on('data', d => data += d);
-                res.on('end', () => resolve({ status: res.statusCode, body: data }));
+                res.on('data', function(d) { data += d; });
+                res.on('end', function() { resolve({ status: res.statusCode, body: data }); });
               });
               req.on('error', reject);
               req.write(body);
@@ -548,100 +818,88 @@ jobs:
             });
           }
 
-          async function sendNtfy(message, title, priority, tags) {
-            if (!NTFY) return;
+          function sendNtfy(message, title, priority) {
+            if (!NTFY) return Promise.resolve();
             const data = Buffer.from(message);
-            return new Promise((resolve) => {
+            return new Promise(function(resolve) {
               const req = https.request({
                 hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
-                headers:  {
+                headers: {
                   'Content-Type':   'text/plain',
                   'Content-Length': data.length,
-                  'Title':          title,
-                  'Tags':           tags || 'robot',
+                  'Title':          safeTitle(title),    // FIXED: strip emoji from header
+                  'Tags':           'robot',
                   'Priority':       priority || 'default',
                 },
-              }, res => { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
-              req.on('error', () => resolve());
+              }, function(res) { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
+              req.on('error', function() { resolve(); });
               req.write(data);
               req.end();
             });
           }
 
-          (async () => {
+          (async function() {
             try {
               const res  = await callGroq(prompt);
               const data = JSON.parse(res.body);
 
               if (res.status !== 200) {
-                console.log('Groq API error: HTTP ' + res.status + ' -- ' + res.body.slice(0, 200));
+                console.log('Groq error: HTTP ' + res.status);
                 process.exit(0);
               }
 
-              const raw    = data.choices?.[0]?.message?.content || '';
+              const raw    = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
               const clean  = raw.replace(/```json|```/g, '').trim();
               const result = JSON.parse(clean);
 
-              console.log('\n=== AI HOOK SCORES (Groq/Llama 3.1) ===');
-              console.log('Average score: ' + result.avgScore + '/10');
+              console.log('\n=== AI HOOK SCORES ===');
+              console.log('Average: ' + result.avgScore + '/10');
               console.log('Strongest: ' + result.strongest);
               console.log('Weakest:   ' + result.weakest);
-              console.log('Ready to render: ' + result.readyToRender);
-              console.log('\nPer-hook scores:');
 
               const weakHooks = [];
               const lines = [];
 
-              result.scores.forEach(s => {
+              result.scores.forEach(function(s) {
                 const bar = '|'.repeat(Math.round(s.score)) + '.'.repeat(10 - Math.round(s.score));
                 console.log(s.id + ' [' + s.score + '/10] ' + bar);
-                console.log('  Strength: ' + s.strength);
-                if (s.score < 7) { weakHooks.push(s); }
-              });
-
-              result.scores.forEach(s => {
-                const emoji = s.score >= 8 ? 'GREAT' : s.score >= 7 ? 'GOOD' : 'WEAK';
-                lines.push(emoji + ' ' + s.id + ': ' + s.score + '/10 - ' + s.strength.slice(0, 50));
+                if (s.score < 7) weakHooks.push(s);
+                const label = s.score >= 8 ? 'GREAT' : s.score >= 7 ? 'GOOD' : 'WEAK';
+                lines.push(label + ' ' + s.id + ': ' + s.score + '/10 - ' + (s.strength || '').slice(0, 50));
               });
 
               lines.push('');
-              lines.push(result.summary);
+              lines.push(result.summary || '');
 
               if (weakHooks.length > 0) {
                 lines.push('');
-                lines.push('Suggested rewrites:');
-                weakHooks.forEach(s => {
+                lines.push('Rewrites:');
+                weakHooks.forEach(function(s) {
                   lines.push(s.id + ': "' + (s.suggestion || '').slice(0, 60) + '"');
                 });
               }
 
-              const priority = result.avgScore >= 7.5 ? 'high' : 'default';
-              const tags     = result.avgScore >= 7.5 ? 'white_check_mark,robot' : 'warning,robot';
-
+              // FIXED: safeTitle() strips emoji from Title header
               await sendNtfy(
                 lines.join('\n'),
-                'Hook Scores -- Avg ' + result.avgScore + '/10 -- ' + (result.readyToRender ? 'READY ✅' : 'NEEDS WORK ⚠'),
-                priority,
-                tags
+                'DWB Hook Scores - Avg ' + result.avgScore + '/10 - ' + (result.readyToRender ? 'READY' : 'NEEDS WORK'),
+                result.avgScore >= 7.5 ? 'high' : 'default'
               );
 
-              if (!result.readyToRender) {
-                console.log('\n⚠  Some hooks scored below threshold -- check ntfy for suggestions.');
-                console.log('Render continues -- fix hooks in next week content file.');
-              } else {
-                console.log('\n✅ All hooks ready to render.');
-              }
-
             } catch(e) {
-              console.log('AI Hook Scorer error (non-fatal): ' + e.message);
+              console.log('Hook Scorer error (non-fatal): ' + e.message);
             }
           })();
           EOF
 
-      - name: Download background videos (Smart Multi-Source Scorer)
+      # =========================================================================
+      # STEP: DOWNLOAD BACKGROUND VIDEOS
+      # 6 CLIPS per video, aligned with overlay content.
+      # =========================================================================
+      - name: Download background videos (6 clips -- Smart Multi-Source)
         env:
-          PIXABAY_API_KEY:    ${{ secrets.PIXABAY_API_KEY }}
-          PEXELS_API_KEY:     ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY:     ${{ secrets.PIXABAY_API_KEY }}
+          PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
         run: |
           mkdir -p public/videos
@@ -660,51 +918,38 @@ jobs:
           const DAY_ASSETS = info.dayAssets || {};
 
           if (Object.keys(DAY_ASSETS).length === 0) {
-            console.log('No day assets defined -- skipping video download');
+            console.log('No day assets defined -- skipping');
             process.exit(0);
           }
 
-          // -- Clip scorer --
           function scoreClip(clip) {
             let score = 0;
             const w = clip.width  || 0;
             const h = clip.height || 0;
-
-            // Resolution score
-            if (w >= 1080 && h >= 1920)  score += 50; // perfect vertical HD
-            else if (h >= w)             score += 30; // vertical not full HD
-            else if (w >= 1920)          score += 20; // horizontal HD
-            else                         score += 5;  // low res
-
-            // Vertical orientation bonus
+            if (w >= 1080 && h >= 1920) score += 50;
+            else if (h >= w)            score += 30;
+            else if (w >= 1920)         score += 20;
+            else                        score += 5;
             if (h > w) score += 20;
-
-            // Duration score (target 8-15s)
             const dur = clip.duration || 0;
-            if      (dur >= 8  && dur <= 15) score += 15;
-            else if (dur >= 5  && dur < 8)   score += 8;
-            else if (dur > 15  && dur < 30)  score += 5;
-            else if (dur > 0)                score += 3;
-
-            // File size score
+            if (dur >= 8 && dur <= 15) score += 15;
+            else if (dur >= 5)         score += 8;
+            else if (dur > 0)          score += 3;
             const size = clip.fileSize || 0;
-            if      (size > 5000000) score += 15;
+            if (size > 5000000) score += 15;
             else if (size > 1000000) score += 8;
-            else if (size > 0)       score += 2;
-
             return score;
           }
 
-          // -- HTTP helpers --
           function fetchJSON(url, headers) {
-            return new Promise((resolve, reject) => {
+            return new Promise(function(resolve, reject) {
               const lib = url.startsWith('https') ? https : http;
-              lib.get(url, { headers: Object.assign({ 'User-Agent': 'DWB-Pipeline/1.0' }, headers || {}) }, res => {
+              lib.get(url, { headers: Object.assign({ 'User-Agent': 'DWB-Pipeline/1.0' }, headers || {}) }, function(res) {
                 if (res.statusCode === 301 || res.statusCode === 302)
                   return fetchJSON(res.headers.location, headers).then(resolve).catch(reject);
                 let data = '';
-                res.on('data', d => data += d);
-                res.on('end', () => {
+                res.on('data', function(d) { data += d; });
+                res.on('end', function() {
                   try { resolve(JSON.parse(data)); }
                   catch(e) { reject(new Error('JSON parse failed')); }
                 });
@@ -713,52 +958,46 @@ jobs:
           }
 
           function downloadFile(url, dest) {
-            return new Promise((resolve, reject) => {
+            return new Promise(function(resolve, reject) {
               const file = fs.createWriteStream(dest);
-              const get  = (u) => {
+              const get  = function(u) {
                 const lib = u.startsWith('https') ? https : http;
-                lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, res => {
-                  if (res.statusCode === 301 || res.statusCode === 302) {
-                    file.close(); return get(res.headers.location);
-                  }
-                  if (res.statusCode !== 200) {
-                    file.close(); reject(new Error('HTTP ' + res.statusCode)); return;
-                  }
+                lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, function(res) {
+                  if (res.statusCode === 301 || res.statusCode === 302) { file.close(); return get(res.headers.location); }
+                  if (res.statusCode !== 200) { file.close(); reject(new Error('HTTP ' + res.statusCode)); return; }
                   res.pipe(file);
-                  file.on('finish', () => { file.close(); resolve(); });
-                }).on('error', e => { file.close(); reject(e); });
+                  file.on('finish', function() { file.close(); resolve(); });
+                }).on('error', function(e) { file.close(); reject(e); });
               };
               get(url);
             });
           }
 
-          const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+          const sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
 
-          // -- Source: Pixabay --
           async function fetchPixabay(query) {
             if (!PIXABAY_KEY) return [];
             try {
-              const urlV = 'https://pixabay.com/api/videos/?key=' + PIXABAY_KEY
-                + '&q=' + encodeURIComponent(query)
-                + '&orientation=vertical&per_page=15&video_type=film&min_height=720';
+              const urlV = 'https://pixabay.com/api/videos/?key=' + PIXABAY_KEY +
+                '&q=' + encodeURIComponent(query) +
+                '&orientation=vertical&per_page=15&video_type=film&min_height=720';
               let data = await fetchJSON(urlV);
               let hits = data.hits || [];
               if (hits.length === 0) {
-                const urlA = 'https://pixabay.com/api/videos/?key=' + PIXABAY_KEY
-                  + '&q=' + encodeURIComponent(query) + '&per_page=15&video_type=film';
+                const urlA = 'https://pixabay.com/api/videos/?key=' + PIXABAY_KEY +
+                  '&q=' + encodeURIComponent(query) + '&per_page=15&video_type=film';
                 data = await fetchJSON(urlA);
                 hits = data.hits || [];
               }
-              return hits.map(hit => {
+              return hits.map(function(hit) {
                 const v    = hit.videos || {};
                 const best = v.large || v.medium || v.small || {};
                 if (!best.url) return null;
-                return { source: 'Pixabay', url: best.url, width: best.width||0, height: best.height||0, duration: hit.duration||0, fileSize: best.size||0, score: 0 };
+                return { source: 'Pixabay', url: best.url, width: best.width || 0, height: best.height || 0, duration: hit.duration || 0, fileSize: best.size || 0, score: 0 };
               }).filter(Boolean);
             } catch(e) { console.log('Pixabay FAILED: ' + e.message); return []; }
           }
 
-          // -- Source: Pexels --
           async function fetchPexels(query) {
             if (!PEXELS_KEY) return [];
             try {
@@ -766,37 +1005,38 @@ jobs:
               const data = await fetchJSON(url, { 'Authorization': PEXELS_KEY });
               const candidates = [];
               for (const vid of (data.videos || [])) {
-                const files = (vid.video_files || []).filter(f => f.file_type === 'video/mp4').sort((a, b) => (b.width * b.height) - (a.width * a.height));
+                const files = (vid.video_files || []).filter(function(f) { return f.file_type === 'video/mp4'; }).sort(function(a, b) { return (b.width * b.height) - (a.width * a.height); });
                 if (files.length === 0) continue;
                 const best = files[0];
-                candidates.push({ source: 'Pexels', url: best.link, width: best.width||vid.width||0, height: best.height||vid.height||0, duration: vid.duration||0, fileSize: 0, score: 0 });
+                candidates.push({ source: 'Pexels', url: best.link, width: best.width || vid.width || 0, height: best.height || vid.height || 0, duration: vid.duration || 0, fileSize: 0, score: 0 });
               }
               return candidates;
             } catch(e) { console.log('Pexels FAILED: ' + e.message); return []; }
           }
 
-          // -- Ken Burns fallback --
           async function makeKenBurns(query, dest) {
             const tmpImg = dest + '_tmp.jpg';
             try {
               const cleanQ = encodeURIComponent(query.replace(/vertical/gi, '').trim());
               let imgUrl = 'https://source.unsplash.com/1080x1920/?' + cleanQ;
               if (UNSPLASH_KEY) {
-                const uUrl = 'https://api.unsplash.com/search/photos?query=' + cleanQ + '&per_page=3&orientation=portrait&client_id=' + UNSPLASH_KEY;
+                const uUrl  = 'https://api.unsplash.com/search/photos?query=' + cleanQ + '&per_page=3&orientation=portrait&client_id=' + UNSPLASH_KEY;
                 const uData = await fetchJSON(uUrl);
-                const res = (uData.results || [])[0];
+                const res   = (uData.results || [])[0];
                 if (res) imgUrl = res.urls.regular || res.urls.small;
               }
               await downloadFile(imgUrl, tmpImg);
               const imgSize = fs.existsSync(tmpImg) ? fs.statSync(tmpImg).size : 0;
-              if (imgSize < 10000) throw new Error('Image too small: ' + imgSize);
-              // Create Ken Burns video with ffmpeg
+              if (imgSize < 10000) throw new Error('Image too small');
               const { execSync } = require('child_process');
-              execSync('ffmpeg -loop 1 -i "' + tmpImg + '" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z=\'min(zoom+0.0015,1.5)\':d=300:x=\'iw/2-(iw/zoom/2)\':y=\'ih/2-(ih/zoom/2)\'" -t 10 -c:v libx264 -pix_fmt yuv420p -y "' + dest + '" 2>/dev/null', { stdio: 'pipe' });
+              execSync(
+                'ffmpeg -loop 1 -i "' + tmpImg + '" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -t 10 -c:v libx264 -pix_fmt yuv420p -y "' + dest + '" 2>/dev/null',
+                { stdio: 'pipe' }
+              );
               if (fs.existsSync(tmpImg)) fs.unlinkSync(tmpImg);
               const vidSize = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
               if (vidSize < 10000) throw new Error('Ken Burns output too small');
-              console.log('Ken Burns OK: ' + path.basename(dest) + ' (' + Math.round(vidSize/1024) + 'KB)');
+              console.log('Ken Burns OK: ' + path.basename(dest));
               return true;
             } catch(e) {
               console.log('Ken Burns FAILED: ' + e.message);
@@ -805,119 +1045,14 @@ jobs:
             }
           }
 
-          // ==========================================================================
-          // PACKSIA GALLERY -- Your personal media library
-          // Upload videos to: public/gallery/<category>/
-          // Categories: hustle | money | lifestyle | emotion | dark | viral | quotes
-          // No renaming needed. Pipeline picks randomly from the right mood folder.
-          // The gallery ALWAYS takes priority over Pixabay/Pexels.
-          // ==========================================================================
+          (async function() {
+            let downloaded = 0, skipped = 0, failed = 0, kenBurns = 0;
 
-          const GALLERY_DIR = 'public/gallery';
-          const VIDEO_EXTS  = ['.mp4', '.mov', '.webm'];
-
-          // Read all clips from a gallery category folder
-          function getGalleryClips(category) {
-            const dir = path.join(GALLERY_DIR, category);
-            if (!fs.existsSync(dir)) return [];
-            return fs.readdirSync(dir)
-              .filter(f => VIDEO_EXTS.some(ext => f.toLowerCase().endsWith(ext)))
-              .map(f => path.join(dir, f));
-          }
-
-          // Load the full gallery index (all categories)
-          function buildGalleryIndex() {
-            const index = {};
-            if (!fs.existsSync(GALLERY_DIR)) return index;
-            for (const cat of fs.readdirSync(GALLERY_DIR)) {
-              const clips = getGalleryClips(cat);
-              if (clips.length > 0) index[cat] = clips;
-            }
-            return index;
-          }
-
-          // Pick N clips from a category, cycling through so all clips get used
-          // Uses a rotation counter stored in out/.gallery_state.json
-          function pickGalleryClips(index, category, count) {
-            const allCats = Object.keys(index);
-            if (allCats.length === 0) return [];
-
-            // Try exact category first, then fall back to any available
-            const clips = index[category] || index[allCats[0]] || [];
-            if (clips.length === 0) return [];
-
-            // Load rotation state so we cycle through all clips fairly
-            let state = {};
-            try { state = JSON.parse(fs.readFileSync('out/.gallery_state.json', 'utf8')); } catch(e) {}
-            const cursor = state[category] || 0;
-
-            const picked = [];
-            for (let i = 0; i < count; i++) {
-              picked.push(clips[(cursor + i) % clips.length]);
-            }
-
-            // Save updated cursor
-            state[category] = (cursor + count) % clips.length;
-            fs.mkdirSync('out', { recursive: true });
-            fs.writeFileSync('out/.gallery_state.json', JSON.stringify(state, null, 2));
-
-            return picked;
-          }
-
-          // Copy a gallery clip to the destination path
-          function copyGalleryClip(src, dest) {
-            try {
-              fs.copyFileSync(src, dest);
-              const size = fs.statSync(dest).size;
-              if (size < 10000) { fs.unlinkSync(dest); return false; }
-              return true;
-            } catch(e) { return false; }
-          }
-
-          const galleryIndex = buildGalleryIndex();
-          const galleryCategories = Object.keys(galleryIndex);
-          if (galleryCategories.length > 0) {
-            console.log('Packsia Gallery loaded: ' + galleryCategories.length + ' categories -- ' +
-              galleryCategories.map(c => c + '(' + galleryIndex[c].length + ')').join(', '));
-          } else {
-            console.log('Packsia Gallery: empty -- using Pixabay/Pexels');
-          }
-
-          // -- Main download loop --
-          (async () => {
-            let downloaded = 0, skipped = 0, failed = 0, kenBurns = 0, gallery = 0;
-
-            for (const [day, assets] of Object.entries(DAY_ASSETS)) {
-              // Check if this day has a galleryCategory defined
-              const dayInfo = (info.dayMeta || {})[day] || {};
-              const galleryCategory = dayInfo.galleryCategory || null;
-
-              // If gallery category set AND gallery has that category, use it for ALL clips this day
-              if (galleryCategory && galleryIndex[galleryCategory]) {
-                console.log('\n[PACKSIA] ' + day + ' -> category: ' + galleryCategory);
-                const clipsNeeded = assets.length;
-                const pickedFiles = pickGalleryClips(galleryIndex, galleryCategory, clipsNeeded);
-
-                for (let i = 0; i < assets.length; i++) {
-                  const item = assets[i];
-                  const dest = 'public/videos/' + item.id + '.mp4';
-
-                  if (fs.existsSync(dest) && fs.statSync(dest).size > 50000) {
-                    console.log('  SKIP (cached): ' + item.id);
-                    skipped++;
-                    continue;
-                  }
-
-                  const srcFile = pickedFiles[i];
-                  if (srcFile && copyGalleryClip(srcFile, dest)) {
-                    console.log('  [GALLERY] ' + item.id + ' <- ' + path.basename(srcFile));
-                    gallery++;
-                  } else {
-                    console.log('  GALLERY MISS: ' + item.id + ' -- falling back to download');
-                    // Fall through to normal download below (handled by continuing)
-                  }
-                }
-                continue; // Skip to next day
+            for (const day of Object.keys(DAY_ASSETS)) {
+              const assets = DAY_ASSETS[day];
+              // Expect 6 clips -- log if less
+              if (assets.length < 6) {
+                console.log('WARNING: ' + day + ' has only ' + assets.length + ' clip queries (expected 6)');
               }
 
               for (const item of assets) {
@@ -930,38 +1065,18 @@ jobs:
                 }
                 if (fs.existsSync(dest)) fs.unlinkSync(dest);
 
-                // Check if any gallery clips match this day at all (auto-detect by day mood)
-                // Uses galleryIndex to find best-fit category automatically
-                if (galleryCategories.length > 0 && !galleryCategory) {
-                  // Auto-mode: round-robin through ALL gallery clips
-                  const allGalleryFiles = galleryCategories.flatMap(c => galleryIndex[c]);
-                  const stateKey = '_auto_' + day;
-                  let autoState = {};
-                  try { autoState = JSON.parse(fs.readFileSync('out/.gallery_state.json','utf8')); } catch(e){}
-                  const autoCursor = autoState[stateKey] || 0;
-                  const srcFile = allGalleryFiles[autoCursor % allGalleryFiles.length];
-                  autoState[stateKey] = autoCursor + 1;
-                  fs.writeFileSync('out/.gallery_state.json', JSON.stringify(autoState, null, 2));
+                console.log('\nFetching: ' + item.id + ' | "' + item.q + '"');
 
-                  if (srcFile && copyGalleryClip(srcFile, dest)) {
-                    console.log('[GALLERY AUTO] ' + item.id + ' <- ' + path.basename(srcFile));
-                    gallery++;
-                    continue;
-                  }
-                }
-
-                console.log('\nFetching: ' + item.id + ' | query: "' + item.q + '"');
-
-                const [pixabayClips, pexelsClips] = await Promise.all([
+                const [pixClips, pexClips] = await Promise.all([
                   fetchPixabay(item.q),
                   fetchPexels(item.q),
                 ]);
 
-                const allClips = [...pixabayClips, ...pexelsClips];
-                allClips.forEach(c => { c.score = scoreClip(c); });
-                allClips.sort((a, b) => b.score - a.score);
+                const allClips = pixClips.concat(pexClips);
+                allClips.forEach(function(c) { c.score = scoreClip(c); });
+                allClips.sort(function(a, b) { return b.score - a.score; });
 
-                console.log('Candidates: ' + allClips.length + ' (Pixabay:' + pixabayClips.length + ' Pexels:' + pexelsClips.length + ')');
+                console.log('Candidates: ' + allClips.length + ' (Pixabay:' + pixClips.length + ' Pexels:' + pexClips.length + ')');
 
                 let success = false;
                 for (const clip of allClips) {
@@ -969,7 +1084,7 @@ jobs:
                     await downloadFile(clip.url, dest);
                     const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
                     if (size > 50000) {
-                      console.log('OK: ' + item.id + ' from ' + clip.source + ' score=' + clip.score + ' (' + clip.width + 'x' + clip.height + ')');
+                      console.log('OK: ' + item.id + ' from ' + clip.source + ' score=' + clip.score);
                       success = true;
                       downloaded++;
                       break;
@@ -981,31 +1096,28 @@ jobs:
                 }
 
                 if (!success) {
-                  console.log('All video sources failed -- trying Ken Burns: ' + item.id);
                   const kb = await makeKenBurns(item.q, dest);
                   if (kb) { kenBurns++; success = true; }
                 }
 
                 if (!success) {
-                  console.log('Creating placeholder for: ' + item.id);
+                  // Generate solid black placeholder so render never crashes
                   try {
                     const { execSync } = require('child_process');
                     execSync(
-                      'ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 ' +
-                      '-t 10 -c:v libx264 -preset ultrafast -pix_fmt yuv420p "' +
-                      dest + '" -y 2>/dev/null',
+                      'ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "' + dest + '" -y -loglevel error',
                       { stdio: 'pipe' }
                     );
                     const phSize = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
                     if (phSize > 1000) {
-                      console.log('Placeholder OK: ' + item.id);
+                      console.log('Placeholder created: ' + item.id);
                       downloaded++;
                     } else {
-                      console.log('FINAL FAIL (placeholder too small): ' + item.id);
+                      console.log('FINAL FAIL: ' + item.id);
                       failed++;
                     }
                   } catch(fe) {
-                    console.log('FINAL FAIL (no placeholder): ' + item.id);
+                    console.log('FINAL FAIL (placeholder error): ' + item.id);
                     failed++;
                   }
                 }
@@ -1015,18 +1127,13 @@ jobs:
             }
 
             console.log('\n--- Video Download Summary ---');
-            console.log('Gallery: ' + gallery + ' | Downloaded: ' + downloaded + ' | Cached: ' + skipped + ' | KenBurns: ' + kenBurns + ' | Failed: ' + failed);
-            if (failed > 0) console.log('WARNING: ' + failed + ' clip(s) failed -- render may have blank backgrounds');
+            console.log('Downloaded: ' + downloaded + ' | Cached: ' + skipped + ' | KenBurns: ' + kenBurns + ' | Failed: ' + failed);
           })();
           EOF
 
       - name: Verify clips and create placeholders for missing files
         run: |
-          echo "=== Checking public/videos ==="
-          ls -la public/videos/ 2>/dev/null | wc -l || echo "Directory empty or missing"
           find public/videos -name "*.mp4" -size +5k 2>/dev/null | wc -l | xargs echo "Valid clips found:"
-
-          # Generate placeholders for any missing clips
           node << 'JSEOF'
           const fs = require('fs');
           const { execSync } = require('child_process');
@@ -1037,7 +1144,7 @@ jobs:
           const allAssets = Object.values(info.dayAssets || {}).flat();
           let created = 0, ok = 0;
           for (const item of allAssets) {
-            const dest = 'public/videos/' + item.id + '.mp4';
+            const dest   = 'public/videos/' + item.id + '.mp4';
             const exists = fs.existsSync(dest) && fs.statSync(dest).size > 5000;
             if (!exists) {
               console.log('Creating placeholder: ' + dest);
@@ -1048,15 +1155,15 @@ jobs:
                   ' "' + dest + '" -y -loglevel error'
                 );
                 created++;
-              } catch(e) { console.log('FAILED: ' + dest + ' - ' + e.message); }
+              } catch(e) { console.log('FAILED: ' + dest); }
             } else { ok++; }
           }
           console.log('Clips OK: ' + ok + ' | Placeholders created: ' + created);
           JSEOF
 
-          echo "=== Final clip count ==="
-          find public/videos -name "*.mp4" -size +1k 2>/dev/null | wc -l | xargs echo "Total valid clips:"
-
+      # =========================================================================
+      # STEP: RENDER
+      # =========================================================================
       - name: Render all videos
         run: |
           BROWSER="./node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell"
@@ -1081,12 +1188,11 @@ jobs:
             npx remotion render src/index.jsx ${DAY} out/${DAY}_final.mp4 \
               --browser-executable="$BROWSER" \
               --codec=h264 \
-              --concurrency=2 \
-              --image-format=jpeg \
-              --jpeg-quality=95 \
-              --crf=16 \
+              --crf=18 \
+              --jpeg-quality=85 \
               --scale=1 \
-              --public-dir "$(pwd)/public" 
+              --concurrency=2 \
+              --public-dir "$(pwd)/public"
 
             EXIT_CODE=$?
             DAY_END=$(date +%s)
@@ -1108,7 +1214,7 @@ jobs:
 
           if [ $RENDER_FAILED -gt 0 ]; then exit 1; fi
 
-      - name: Audio normalization (ffmpeg loudnorm -- YouTube standard -14 LUFS)
+      - name: Audio normalization (ffmpeg loudnorm -- YouTube -14 LUFS)
         if: success()
         run: |
           DAYS_INPUT="${{ github.event.inputs.days_override }}"
@@ -1117,16 +1223,11 @@ jobs:
           else
             NORM_DAYS="${{ env.ACTIVE_DAYS }}"
           fi
-
           for DAY in $NORM_DAYS; do
             FILE="out/${DAY}_final.mp4"
             NORM="out/${DAY}_norm.mp4"
             if [ -f "$FILE" ]; then
-              # Two-pass loudnorm to -14 LUFS (YouTube/Spotify standard)
-              LOUDNORM=$(ffmpeg -i "$FILE" -af loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json \
-                -f null - 2>&1 | grep -A 20 '{' | head -20)
-              ffmpeg -i "$FILE" \
-                -af loudnorm=I=-14:TP=-1.5:LRA=11 \
+              ffmpeg -i "$FILE" -af loudnorm=I=-14:TP=-1.5:LRA=11 \
                 -c:v copy -c:a aac -b:a 192k \
                 "$NORM" -y -loglevel error \
                 && mv "$NORM" "$FILE" \
@@ -1134,85 +1235,6 @@ jobs:
                 || echo "Normalization FAILED (non-fatal): ${DAY}"
             fi
           done
-
-      - name: Burn-in captions (ffmpeg drawtext)
-        if: false
-        run: |
-          node << 'EOF'
-          const fs   = require('fs');
-          const path = require('path');
-          const srcDir = path.join(process.cwd(), 'src');
-          const files  = fs.existsSync(srcDir) ? fs.readdirSync(srcDir).filter(f => f.match(/^week\d+-content\.js$/)) : [];
-          const wNums    = files.map(f => parseInt(f.match(/week(\d+)/)[1])).sort((a,b) => b-a);
-          if (wNums.length === 0) { console.log('No content file -- skipping captions'); process.exit(0); }
-
-          const activeFile = path.join(srcDir, 'week' + wNums[0] + '-content.js');
-          const source     = fs.readFileSync(activeFile, 'utf8');
-          let entries = [];
-          try {
-            const dm  = source.match(/export\s+default\s+(\[[\s\S]*\]);?\s*$/m);
-            const nm  = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-            const arr = dm ? dm[1] : (nm ? nm[1] : null);
-            if (arr) entries = eval(arr);
-          } catch(e) { console.log('Parse error: ' + e.message); process.exit(0); }
-
-          const FPS = 30;
-          let captioned = 0, skipped = 0;
-
-          for (const entry of entries) {
-            const inFile  = path.join('out', entry.id + '_final.mp4');
-            const tmpFile = path.join('out', entry.id + '_captioned.mp4');
-
-            if (!fs.existsSync(inFile)) { skipped++; continue; }
-            if (!entry.overlays || entry.overlays.length === 0) { skipped++; continue; }
-
-            // Build drawtext filter chain -- one filter per overlay
-            const filters = entry.overlays.map(o => {
-              if (!o.text || o.startFrame === undefined) return null;
-              const startSec = (o.startFrame / FPS).toFixed(3);
-              const endSec   = (o.endFrame   / FPS).toFixed(3);
-              // Clean text for ffmpeg -- escape special chars
-              const text = o.text
-                .replace(/\n/g, ' | ')
-                .replace(/'/g, "\u2019")
-                .replace(/:/g, '\\:')
-                .replace(/\[/g, '\\[')
-                .replace(/\]/g, '\\]')
-                .replace(/,/g, '\\,');
-
-              // Position mapping
-              const yPos = o.position === 'top-center'    ? '50'
-                         : o.position === 'bottom-center' ? 'h-th-80'
-                         : '(h-th)/2';
-
-              return 'drawtext=text=\'' + text + '\':fontsize=28:fontcolor=white:borderw=2:bordercolor=black:x=(w-tw)/2:y=' + yPos + ':enable=\'between(t,' + startSec + ',' + endSec + ')\'';
-            }).filter(Boolean).join(',');
-
-            if (!filters) { skipped++; continue; }
-
-            try {
-              execSync(
-                'ffmpeg -i "' + inFile + '" -vf "' + filters + '" -c:a copy -c:v libx264 -crf 20 -preset fast "' + tmpFile + '" -y -loglevel error',
-                { stdio: 'pipe', timeout: 120000 }
-              );
-              if (fs.existsSync(tmpFile) && fs.statSync(tmpFile).size > 100000) {
-                fs.renameSync(tmpFile, inFile);
-                console.log('Captions burned: ' + entry.id);
-                captioned++;
-              } else {
-                if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
-                console.log('Caption output too small -- keeping original: ' + entry.id);
-                skipped++;
-              }
-            } catch(e) {
-              if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
-              console.log('Caption FAILED (non-fatal): ' + entry.id + ' -- ' + e.message.slice(0,100));
-              skipped++;
-            }
-          }
-
-          console.log('Captions: ' + captioned + ' burned | ' + skipped + ' skipped');
-          EOF
 
       - name: Generate thumbnails
         if: success()
@@ -1223,7 +1245,6 @@ jobs:
           else
             THUMB_DAYS="${{ env.ACTIVE_DAYS }}"
           fi
-
           for DAY in $THUMB_DAYS; do
             FILE="out/${DAY}_final.mp4"
             if [ -f "$FILE" ]; then
@@ -1243,15 +1264,13 @@ jobs:
           else
             GIF_DAYS="${{ env.ACTIVE_DAYS }}"
           fi
-
           for DAY in $GIF_DAYS; do
             FILE="out/${DAY}_final.mp4"
             if [ -f "$FILE" ]; then
               ffmpeg -t 3 -i "$FILE" \
                 -vf "fps=12,scale=270:-1:flags=lanczos,palettegen" \
                 -y "out/gifs/${DAY}_palette.png" -loglevel error && \
-              ffmpeg -t 3 -i "$FILE" \
-                -i "out/gifs/${DAY}_palette.png" \
+              ffmpeg -t 3 -i "$FILE" -i "out/gifs/${DAY}_palette.png" \
                 -lavfi "fps=12,scale=270:-1:flags=lanczos[x];[x][1:v]paletteuse" \
                 -y "out/gifs/${DAY}_hook.gif" -loglevel error && \
               echo "GIF OK: ${DAY}" || echo "GIF FAILED: ${DAY}"
@@ -1265,31 +1284,41 @@ jobs:
           node << 'EOF'
           const fs   = require('fs');
           const path = require('path');
-          const srcDir       = path.join(process.cwd(), 'src');
-          const allFiles     = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
-          const contentFiles = allFiles.filter(f => f.match(/^week\d+-content\.js$/));
-          const weekNums    = contentFiles.map(f => parseInt(f.match(/week(\d+)/)[1])).sort((a,b) => b - a);
-          const activeFile  = path.join(srcDir, 'week' + weekNums[0] + '-content.js');
-          const source      = fs.readFileSync(activeFile, 'utf8');
 
-          const defaultMatch = source.match(/export\s+default\s+(\[[\s\S]*\]);?\s*$/m);
-          const namedMatch   = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-          const arrayStr     = defaultMatch ? defaultMatch[1] : (namedMatch ? namedMatch[1] : null);
           let entries = [];
-          try { if (arrayStr) entries = eval(arrayStr); } catch(e) {}
 
-          // Convert frame number to SRT timestamp (HH:MM:SS,mmm)
+          // Try generated video first
+          if (fs.existsSync('src/current-video.js')) {
+            try {
+              const source = fs.readFileSync('src/current-video.js', 'utf8');
+              const match  = source.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);
+              if (match) entries = [JSON.parse(match[1])];
+            } catch(e) {}
+          }
+
+          if (entries.length === 0) {
+            const srcDir       = path.join(process.cwd(), 'src');
+            const allFiles     = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
+            const contentFiles = allFiles.filter(function(f) { return f.match(/^week\d+-content\.js$/); });
+            const weekNums     = contentFiles.map(function(f) { return parseInt(f.match(/week(\d+)/)[1]); }).sort(function(a,b) { return b - a; });
+            if (weekNums.length > 0) {
+              const activeFile = path.join(srcDir, 'week' + weekNums[0] + '-content.js');
+              const source     = fs.readFileSync(activeFile, 'utf8');
+              const dm  = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
+              const nm  = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
+              const arr = dm ? dm[1] : (nm ? nm[1] : null);
+              try { if (arr) entries = eval(arr); } catch(e) {}
+            }
+          }
+
           function framesToSRT(frame, fps) {
             fps = fps || 30;
-            const totalMs  = Math.round((frame / fps) * 1000);
-            const hours    = Math.floor(totalMs / 3600000);
-            const minutes  = Math.floor((totalMs % 3600000) / 60000);
-            const seconds  = Math.floor((totalMs % 60000) / 1000);
-            const ms       = totalMs % 1000;
-            return String(hours).padStart(2,'0') + ':'
-              + String(minutes).padStart(2,'0') + ':'
-              + String(seconds).padStart(2,'0') + ','
-              + String(ms).padStart(3,'0');
+            const totalMs = Math.round((frame / fps) * 1000);
+            const h = Math.floor(totalMs / 3600000);
+            const m = Math.floor((totalMs % 3600000) / 60000);
+            const s = Math.floor((totalMs % 60000) / 1000);
+            const ms = totalMs % 1000;
+            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0') + ',' + String(ms).padStart(3,'0');
           }
 
           let generated = 0;
@@ -1306,6 +1335,7 @@ jobs:
               index++;
             }
             if (srtLines.length > 0) {
+              fs.mkdirSync('out/srt', { recursive: true });
               fs.writeFileSync('out/srt/' + entry.id + '.srt', srtLines.join('\n'));
               generated++;
             }
@@ -1313,11 +1343,17 @@ jobs:
           console.log('Generated ' + generated + ' SRT files');
           EOF
 
+      # =========================================================================
+      # STEP: YOUTUBE UPLOAD
+      # FIX: Detect invalid_grant (expired token) specifically.
+      # Send ntfy with regeneration instructions instead of silently failing.
+      # =========================================================================
       - name: Upload to YouTube (scheduled -- 1 video per day at 9AM UTC)
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          NTFY_TOPIC:            ${{ secrets.NTFY_TOPIC }}
           DAYS_OVERRIDE:         ${{ github.event.inputs.days_override }}
         run: |
           node << 'EOF'
@@ -1328,6 +1364,31 @@ jobs:
           const CLIENT_ID     = process.env.YOUTUBE_CLIENT_ID     || '';
           const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || '';
           const REFRESH_TOKEN = process.env.YOUTUBE_REFRESH_TOKEN || '';
+          const NTFY          = process.env.NTFY_TOPIC            || '';
+
+          function safeTitle(str) {
+            return (str || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
+          }
+
+          async function sendNtfy(message, title, priority, tags) {
+            if (!NTFY) return;
+            const data = Buffer.from(message);
+            return new Promise(function(resolve) {
+              const req = https.request({
+                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
+                headers: {
+                  'Content-Type':   'text/plain',
+                  'Content-Length': data.length,
+                  'Title':          safeTitle(title),
+                  'Tags':           tags || 'warning',
+                  'Priority':       priority || 'high',
+                },
+              }, function(res) { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
+              req.on('error', function() { resolve(); });
+              req.write(data);
+              req.end();
+            });
+          }
 
           if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
             console.log('YouTube secrets not configured -- skipping upload');
@@ -1339,18 +1400,18 @@ jobs:
           try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
 
           const overrideDays = process.env.DAYS_OVERRIDE
-            ? process.env.DAYS_OVERRIDE.split(',').map(d => d.trim()).filter(Boolean)
+            ? process.env.DAYS_OVERRIDE.split(',').map(function(d) { return d.trim(); }).filter(Boolean)
             : info.days;
 
           const days    = overrideDays.length > 0 ? overrideDays : info.days;
           const dayMeta = info.dayMeta || {};
 
           function httpsRequest(options, body) {
-            return new Promise((resolve, reject) => {
-              const req = https.request(options, res => {
+            return new Promise(function(resolve, reject) {
+              const req = https.request(options, function(res) {
                 let data = '';
-                res.on('data', d => data += d);
-                res.on('end', () => resolve({ status: res.statusCode, body: data, headers: res.headers }));
+                res.on('data', function(d) { data += d; });
+                res.on('end', function() { resolve({ status: res.statusCode, body: data, headers: res.headers }); });
               });
               req.on('error', reject);
               if (body) req.write(body);
@@ -1367,7 +1428,30 @@ jobs:
               hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
               headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
             }, body);
-            if (res.status !== 200) throw new Error('Token refresh failed: ' + res.body);
+
+            // FIXED: Detect invalid_grant specifically and send actionable ntfy
+            if (res.status !== 200) {
+              let errorData = {};
+              try { errorData = JSON.parse(res.body); } catch(e) {}
+
+              if (errorData.error === 'invalid_grant') {
+                const msg = 'YouTube Refresh Token has EXPIRED.\n\n' +
+                  'To fix:\n' +
+                  '1. Go to: developers.google.com/oauthplayground\n' +
+                  '2. Select YouTube Data API v3 scopes\n' +
+                  '3. Authorize and get new refresh token\n' +
+                  '4. Update YOUTUBE_REFRESH_TOKEN in GitHub Secrets\n' +
+                  '5. Re-run workflow\n\n' +
+                  'Videos are rendered and saved as artifacts -- not lost.';
+                await sendNtfy(msg, 'ACTION REQUIRED -- YouTube Token Expired', 'urgent', 'x,warning');
+                console.log('ERROR: YouTube refresh token expired (invalid_grant)');
+                console.log('Videos are rendered and saved. Fix token and re-run upload step.');
+                fs.writeFileSync('out/.upload_results.json', '[]');
+                process.exit(1);
+              }
+
+              throw new Error('Token refresh failed: HTTP ' + res.status + ' -- ' + res.body.slice(0, 200));
+            }
             return JSON.parse(res.body).access_token;
           }
 
@@ -1391,10 +1475,10 @@ jobs:
               path: '/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
               method: 'POST',
               headers: {
-                'Authorization':   'Bearer ' + token,
-                'Content-Type':    'application/json',
-                'Content-Length':  Buffer.byteLength(initBody),
-                'X-Upload-Content-Type': 'video/mp4',
+                'Authorization':           'Bearer ' + token,
+                'Content-Type':            'application/json',
+                'Content-Length':          Buffer.byteLength(initBody),
+                'X-Upload-Content-Type':   'video/mp4',
                 'X-Upload-Content-Length': fileSize,
               },
             }, initBody);
@@ -1410,7 +1494,7 @@ jobs:
               const chunkSize = Math.min(CHUNK, fileSize - uploaded);
               const buf = Buffer.alloc(chunkSize);
               fs.readSync(fd, buf, 0, chunkSize, uploaded);
-              const urlObj = new URL(uploadUrl);
+              const urlObj   = new URL(uploadUrl);
               const chunkRes = await httpsRequest({
                 hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, method: 'PUT',
                 headers: {
@@ -1434,12 +1518,12 @@ jobs:
           function getPublishAt(dayIndex) {
             const now    = new Date();
             const dow    = now.getUTCDay();
-            const diff   = (dow === 0 ? -6 : 1 - dow);
-            const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff, 15, 0, 0));
-            return new Date(monday.getTime() + dayIndex * 86400000).toISOString();
+            const diff   = (dow === 0 ? 0 : 1);
+            const today  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff, 9, 0, 0));
+            return new Date(today.getTime() + dayIndex * 86400000).toISOString();
           }
 
-          (async () => {
+          (async function() {
             let uploaded = 0, failed = 0;
             const results   = [];
             const scheduled = [];
@@ -1449,7 +1533,7 @@ jobs:
               accessToken = await getAccessToken();
               console.log('Access token OK');
             } catch(e) {
-              console.log('ERROR: Cannot get access token: ' + e.message);
+              console.log('ERROR: ' + e.message);
               fs.writeFileSync('out/.upload_results.json', '[]');
               process.exit(1);
             }
@@ -1459,7 +1543,7 @@ jobs:
               const filePath = 'out/' + day + '_final.mp4';
               if (!fs.existsSync(filePath)) {
                 console.log('SKIP: ' + day + ' -- file not found');
-                results.push({ day, status: 'failed', error: 'file not found' });
+                results.push({ day: day, status: 'failed', error: 'file not found' });
                 failed++;
                 continue;
               }
@@ -1473,12 +1557,12 @@ jobs:
                   tags:        ['personalfinance', 'wealthbuilding', 'financialfreedom', 'moneyhabits'],
                 }, publishAt);
                 console.log('UPLOADED: ' + day + ' -> https://youtu.be/' + videoId);
-                results.push({ day, videoId, url: 'https://youtu.be/' + videoId, status: 'ok', publishAt });
-                scheduled.push({ day, videoId, url: 'https://youtu.be/' + videoId, publishAt, notifScheduled: false });
+                results.push({ day: day, videoId: videoId, url: 'https://youtu.be/' + videoId, status: 'ok', publishAt: publishAt });
+                scheduled.push({ day: day, videoId: videoId, url: 'https://youtu.be/' + videoId, publishAt: publishAt, notifScheduled: false, pinnedComment: meta.pinnedComment || '' });
                 uploaded++;
               } catch(e) {
                 console.log('UPLOAD FAILED: ' + day + ': ' + e.message);
-                results.push({ day, status: 'failed', error: e.message });
+                results.push({ day: day, status: 'failed', error: e.message });
                 failed++;
               }
             }
@@ -1487,15 +1571,11 @@ jobs:
 
             let existing = [];
             try { existing = JSON.parse(fs.readFileSync('scheduled-videos.json', 'utf8')); } catch(e) {}
-            const merged = [...existing.filter(v => !days.includes(v.day)), ...scheduled];
+            const merged = existing.filter(function(v) { return days.indexOf(v.day) === -1; }).concat(scheduled);
             fs.writeFileSync('scheduled-videos.json', JSON.stringify(merged, null, 2));
 
             console.log('\n--- YouTube Upload Summary ---');
             console.log('Uploaded: ' + uploaded + ' | Failed: ' + failed);
-            results.forEach(r => {
-              if (r.status === 'ok') console.log('  ' + r.day + ' -> ' + r.url);
-              else console.log('  ' + r.day + ' -> FAILED: ' + r.error);
-            });
           })();
           EOF
 
@@ -1505,28 +1585,61 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main || true
-          # Add files that exist -- skip missing ones safely
           git add scheduled-videos.json 2>/dev/null || true
-          git add playlist-cache.json 2>/dev/null || true
-          git add out/.week_info.json 2>/dev/null || true
-          git diff --staged --quiet || git commit -m "chore: update scheduled videos + playlist cache [skip ci]"
+          git add out/.week_info.json   2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: update scheduled videos [skip ci]"
           git push || true
 
-      - name: Reddit auto-post (r/personalfinance + r/financialindependence)
+      # =========================================================================
+      # STEP: COMMIT VIDEO COUNTER + CONTENT HISTORY
+      # Increments counter after successful render so next run gets next day.
+      # =========================================================================
+      - name: Commit video counter and content history
+        if: success()
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+
+          // Only update counter if Groq generation was used
+          if (!fs.existsSync('src/current-video.js')) {
+            console.log('No generated video -- skipping counter update');
+            process.exit(0);
+          }
+
+          let counter = { nextDay: 50, lastRendered: 'day49' };
+          try { counter = JSON.parse(fs.readFileSync('video-counter.json', 'utf8')); } catch(e) {}
+
+          const renderedDay = counter.nextDay;
+          counter.lastRendered   = 'day' + renderedDay;
+          counter.lastRenderedAt = new Date().toISOString();
+          counter.nextDay        = renderedDay + 1;
+
+          fs.writeFileSync('video-counter.json', JSON.stringify(counter, null, 2));
+          console.log('Counter updated: day' + renderedDay + ' done -> next: day' + counter.nextDay);
+          EOF
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
+          git add video-counter.json   2>/dev/null || true
+          git add content-history.json 2>/dev/null || true
+          git add src/current-video.js 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: update video counter + content history [skip ci]"
+          git push || true
+
+      - name: Reddit auto-post
         if: success()
         continue-on-error: true
         env:
-          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_ID:     ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
-          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
-          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
+          REDDIT_USERNAME:      ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD:      ${{ secrets.REDDIT_PASSWORD }}
         run: |
           node << 'EOF'
-          const fs      = require('fs');
-          const path    = require('path');
-          const https   = require('https');
+          const fs    = require('fs');
+          const https = require('https');
 
-          // Reddit credentials
           const CLIENT_ID     = process.env.REDDIT_CLIENT_ID     || '';
           const CLIENT_SECRET = process.env.REDDIT_CLIENT_SECRET || '';
           const USERNAME      = process.env.REDDIT_USERNAME       || '';
@@ -1537,28 +1650,23 @@ jobs:
             process.exit(0);
           }
 
-          // Load week info and upload results
-          let info = {};
-          try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
+          let info    = {};
           let uploads = [];
+          try { info    = JSON.parse(fs.readFileSync('out/.week_info.json',      'utf8')); } catch(e) {}
           try { uploads = JSON.parse(fs.readFileSync('out/.upload_results.json', 'utf8')); } catch(e) {}
-          const successUploads = uploads.filter(u => u.status === 'ok');
 
-          if (successUploads.length === 0) {
-            console.log('No successful uploads -- skipping Reddit post.');
-            process.exit(0);
-          }
+          const successUploads = uploads.filter(function(u) { return u.status === 'ok'; });
+          if (successUploads.length === 0) { console.log('No successful uploads -- skipping Reddit.'); process.exit(0); }
 
-          // Post only the first video of the week to avoid spam
           const firstUpload = successUploads[0];
-          const dayMeta     = (info.dayMeta || {})[firstUpload.day] || {};
+          const dayMeta     = ((info.dayMeta || {})[firstUpload.day]) || {};
 
           function httpsRequest(options, body) {
-            return new Promise((resolve, reject) => {
-              const req = https.request(options, res => {
+            return new Promise(function(resolve, reject) {
+              const req = https.request(options, function(res) {
                 let data = '';
-                res.on('data', d => data += d);
-                res.on('end', () => resolve({ status: res.statusCode, body: data }));
+                res.on('data', function(d) { data += d; });
+                res.on('end', function() { resolve({ status: res.statusCode, body: data }); });
               });
               req.on('error', reject);
               if (body) req.write(body);
@@ -1568,13 +1676,10 @@ jobs:
 
           async function getRedditToken() {
             const creds = Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64');
-            const body  = 'grant_type=password&username=' + encodeURIComponent(USERNAME)
-              + '&password=' + encodeURIComponent(PASSWORD);
-            const res = await httpsRequest({
-              hostname: 'www.reddit.com',
-              path:     '/api/v1/access_token',
-              method:   'POST',
-              headers:  {
+            const body  = 'grant_type=password&username=' + encodeURIComponent(USERNAME) + '&password=' + encodeURIComponent(PASSWORD);
+            const res   = await httpsRequest({
+              hostname: 'www.reddit.com', path: '/api/v1/access_token', method: 'POST',
+              headers: {
                 'Authorization':  'Basic ' + creds,
                 'Content-Type':   'application/x-www-form-urlencoded',
                 'User-Agent':     'DWB-Pipeline/1.0 by ' + USERNAME,
@@ -1582,73 +1687,49 @@ jobs:
               }
             }, body);
             const data = JSON.parse(res.body);
-            if (!data.access_token) throw new Error('Reddit auth failed: ' + res.body);
+            if (!data.access_token) throw new Error('Reddit auth failed');
             return data.access_token;
           }
 
-          async function postToSubreddit(token, subreddit, title, url, text) {
+          async function postToSubreddit(token, subreddit, title, url) {
             const body = new URLSearchParams({
-              sr:      subreddit,
-              kind:    'link',
-              title:   title.slice(0, 300),
-              url:     url,
-              resubmit: 'true',
-              nsfw:    'false',
-              spoiler: 'false',
+              sr: subreddit, kind: 'link',
+              title: title.slice(0, 300), url: url,
+              resubmit: 'true', nsfw: 'false', spoiler: 'false',
             }).toString();
-
             const res = await httpsRequest({
-              hostname: 'oauth.reddit.com',
-              path:     '/api/submit',
-              method:   'POST',
-              headers:  {
+              hostname: 'oauth.reddit.com', path: '/api/submit', method: 'POST',
+              headers: {
                 'Authorization':  'Bearer ' + token,
                 'Content-Type':   'application/x-www-form-urlencoded',
                 'User-Agent':     'DWB-Pipeline/1.0 by ' + USERNAME,
                 'Content-Length': Buffer.byteLength(body),
               }
             }, body);
-
             const data = JSON.parse(res.body);
-            if (data.success === false || res.status !== 200) {
-              throw new Error('Reddit post failed: ' + res.body.slice(0, 200));
-            }
+            if (data.success === false) throw new Error('Reddit post failed: ' + res.body.slice(0, 200));
             return data;
           }
 
-          (async () => {
+          (async function() {
             try {
               const token = await getRedditToken();
-              console.log('Reddit token obtained');
-
               const title = dayMeta.youtubeTitle || ('DWB ' + firstUpload.day + ' -- Daily Wealth Building');
               const url   = firstUpload.url;
-
-              // Post to r/personalfinance
               try {
                 await postToSubreddit(token, 'personalfinance', title, url);
-                console.log('Posted to r/personalfinance: ' + title.slice(0, 60));
-              } catch(e) {
-                console.log('r/personalfinance FAILED: ' + e.message);
-              }
-
-              await new Promise(r => setTimeout(r, 2000));
-
-              // Post to r/financialindependence
+                console.log('Posted to r/personalfinance');
+              } catch(e) { console.log('r/personalfinance FAILED: ' + e.message); }
+              await new Promise(function(r) { setTimeout(r, 2000); });
               try {
                 await postToSubreddit(token, 'financialindependence', title, url);
-                console.log('Posted to r/financialindependence: ' + title.slice(0, 60));
-              } catch(e) {
-                console.log('r/financialindependence FAILED: ' + e.message);
-              }
-
-            } catch(e) {
-              console.log('Reddit ERROR: ' + e.message);
-            }
+                console.log('Posted to r/financialindependence');
+              } catch(e) { console.log('r/financialindependence FAILED: ' + e.message); }
+            } catch(e) { console.log('Reddit ERROR: ' + e.message); }
           })();
           EOF
 
-      - name: Schedule per-video public notifications
+      - name: Schedule per-video notifications
         if: success()
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
@@ -1657,88 +1738,73 @@ jobs:
           const fs    = require('fs');
           const https = require('https');
           const NTFY  = process.env.NTFY_TOPIC || '';
-          let scheduledVideos = [];
-          try { scheduledVideos = JSON.parse(fs.readFileSync('scheduled-videos.json', 'utf8')); } catch(e) {}
-          const newVideos = scheduledVideos.filter(v => !v.notifScheduled && v.publishAt);
 
-          if (newVideos.length === 0) {
-            console.log('No new videos to schedule notifications for');
-            process.exit(0);
+          function safeTitle(str) {
+            return (str || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
           }
 
-          function sendNtfy(message, title, priority) {
-            return new Promise((resolve) => {
+          let scheduledVideos = [];
+          try { scheduledVideos = JSON.parse(fs.readFileSync('scheduled-videos.json', 'utf8')); } catch(e) {}
+          const newVideos = scheduledVideos.filter(function(v) { return !v.notifScheduled && v.publishAt; });
+
+          if (newVideos.length === 0) { console.log('No new videos to notify'); process.exit(0); }
+
+          function sendNtfy(message, title) {
+            return new Promise(function(resolve) {
               const data = Buffer.from(message);
               const req  = https.request({
                 hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
-                headers:  {
+                headers: {
                   'Content-Type':   'text/plain',
                   'Content-Length': data.length,
-                  'Title':          title,
+                  'Title':          safeTitle(title),
                   'Tags':           'calendar,movie_camera',
-                  'Priority':       priority || 'default',
+                  'Priority':       'default',
                 },
-              }, res => { console.log('ntfy: HTTP ' + res.statusCode + ' -- ' + title); resolve(); });
-              req.on('error', () => resolve());
+              }, function(res) { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
+              req.on('error', function() { resolve(); });
               req.write(data);
               req.end();
             });
           }
 
-          (async () => {
-            // Send one summary notification for the whole week schedule
-            const lines = ['DWB Week Schedule -- Videos go live:', ''];
-            newVideos.forEach(v => {
-              const d = new Date(v.publishAt);
+          (async function() {
+            const lines = ['DWB Schedule -- Videos go live:', ''];
+            newVideos.forEach(function(v) {
+              const d       = new Date(v.publishAt);
               const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()];
               const time    = d.getUTCHours() + ':' + String(d.getUTCMinutes()).padStart(2,'0') + ' UTC';
               lines.push(v.day + ' -- ' + dayName + ' ' + time + ' -> ' + v.url);
-              // Mark as notification scheduled
               v.notifScheduled = true;
             });
-            lines.push('');
-            lines.push('Open TikTok at each time to post draft.');
-
-            await sendNtfy(lines.join('\n'), 'DWB Week ' + newVideos.length + ' Videos Scheduled', 'default');
-
-            // Save updated scheduled-videos.json
+            await sendNtfy(lines.join('\n'), 'DWB ' + newVideos.length + ' Videos Scheduled');
             fs.writeFileSync('scheduled-videos.json', JSON.stringify(scheduledVideos, null, 2));
-            console.log('Notification schedule sent for ' + newVideos.length + ' videos');
           })();
           EOF
 
-      - name: Update README with latest render stats
+      - name: Update README
         if: success()
         run: |
           node << 'EOF'
           const fs   = require('fs');
-          const path = require('path');
-          const https = require('https');
-          let info = { week: 'unknown', days: [] };
-          try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
+          const today    = new Date().toISOString().split('T')[0];
+          const runId    = process.env.GITHUB_RUN_ID     || '0';
+          const runNum   = process.env.GITHUB_RUN_NUMBER || '0';
+          const repo     = process.env.GITHUB_REPOSITORY || 'dailywealthbuilding/DWB-Videos';
+
+          let info    = { week: 'unknown', days: [] };
           let uploads = [];
+          try { info    = JSON.parse(fs.readFileSync('out/.week_info.json',      'utf8')); } catch(e) {}
           try { uploads = JSON.parse(fs.readFileSync('out/.upload_results.json', 'utf8')); } catch(e) {}
-          const renderedDays = (info.days || []).filter(d => fs.existsSync('out/' + d + '_final.mp4'));
 
-          const uploadedLinks = uploads
-            .filter(u => u.status === 'ok')
-            .map(u => '- [' + u.day + '](' + u.url + ')')
-            .join('\n');
+          const rendered = (info.days || []).filter(function(d) { return fs.existsSync('out/' + d + '_final.mp4'); });
+          const uploadedLinks = uploads.filter(function(u) { return u.status === 'ok'; })
+            .map(function(u) { return '- [' + u.day + '](' + u.url + ')'; }).join('\n');
 
-          const dayNums = info.days.map(d => parseInt(d.replace('day',''))).filter(Boolean);
-          const minDay  = dayNums.length ? Math.min(...dayNums) : '?';
-          const maxDay  = dayNums.length ? Math.max(...dayNums) : '?';
-
-          // Variables that were undefined -- now declared
-          const today   = new Date().toISOString().split('T')[0];
-          const rendered = (info.days || []).filter(d => fs.existsSync('out/' + d + '_final.mp4'));
-          const runId   = process.env.GITHUB_RUN_ID    || '0';
-          const runNum  = process.env.GITHUB_RUN_NUMBER || '0';
-          const repo    = process.env.GITHUB_REPOSITORY || 'dailywealthbuilding/DWB-Videos';
-
-          const badge = (label, msg, color) =>
-            '![' + label + '](https://img.shields.io/badge/' +
-            encodeURIComponent(label) + '-' + encodeURIComponent(msg) + '-' + color + ')';
+          const badge = function(label, msg, color) {
+            return '![' + label + '](https://img.shields.io/badge/' +
+              encodeURIComponent(label) + '-' + encodeURIComponent(msg) + '-' + color + ')';
+          };
 
           const readme = [
             '# DWB -- Daily Wealth Building',
@@ -1747,58 +1813,57 @@ jobs:
             '',
             badge('Last Render', today, 'gold') + ' ' +
             badge('Week', info.week, 'blue') + ' ' +
-            badge('Days', minDay + '--' + maxDay, 'green') + ' ' +
-            badge('Videos', rendered.length + '/' + info.days.length, rendered.length === info.days.length ? 'brightgreen' : 'orange'),
+            badge('Videos', rendered.length + '/' + (info.days || []).length, rendered.length === (info.days || []).length ? 'brightgreen' : 'orange'),
             '',
             '## Latest Render -- ' + today,
             '',
             '| Field | Value |',
             '|---|---|',
             '| Week | ' + info.week + ' |',
-            '| Days | ' + info.days.join(', ') + ' |',
-            '| Rendered | ' + rendered.length + ' / ' + info.days.length + ' |',
+            '| Days | ' + (info.days || []).join(', ') + ' |',
+            '| Rendered | ' + rendered.length + ' / ' + (info.days || []).length + ' |',
             '| Run | [#' + runNum + '](https://github.com/' + repo + '/actions/runs/' + runId + ') |',
             '',
             uploadedLinks ? ('## YouTube Links\n\n' + uploadedLinks) : '',
             '',
             '## Pipeline',
             '',
-            '- Remotion 4.0 -> GitHub Actions (Monday 6AM UTC)',
-            '- 1080x1920 @ 30fps | 900 frames | h264',
-            '- Music: Jamendo trending -> FMA -> Pixabay fallback',
-            '- Video: Pixabay + Pexels + Custom Gallery',
-            '- YouTube auto-upload with title, description, pinned comment',
+            '- Groq AI script generation -- fresh script per video based on trending',
+            '- Remotion 4.0 + GitHub Actions -- 1 video per run',
+            '- 1080x1920 30fps | CRF 18 | h264',
+            '- 6 clips per video -- Pixabay + Pexels + Ken Burns fallback',
+            '- Music: Jamendo -> Pixabay fallback',
+            '- YouTube auto-upload + scheduled publishing',
             '- Push notifications via ntfy',
             '',
             '---',
             '_Auto-updated by GitHub Actions on ' + today + '_',
-          ].filter(l => l !== undefined).join('\n');
+          ].filter(function(l) { return l !== undefined; }).join('\n');
 
           fs.writeFileSync('README.md', readme);
-          console.log('README.md updated for ' + today);
+          console.log('README.md updated');
           EOF
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
-          git diff --staged --quiet || git commit -m "chore: update README after render [skip ci]"
+          git diff --staged --quiet || git commit -m "chore: update README [skip ci]"
           git pull --rebase origin main || true
           git push
 
       - name: Upload all export artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dwb-${{ env.ACTIVE_WEEK }}-all-exports-${{ github.run_number }}
+          name: dwb-${{ env.ACTIVE_WEEK }}-exports-${{ github.run_number }}
           path: |
             out/*.mp4
             out/thumbs/*.jpg
             out/gifs/*.gif
             out/srt/*.srt
-            out/chapters/*.txt
           retention-days: 14
           if-no-files-found: warn
 
-      - name: Send ntfy notification
+      - name: Send ntfy final notification
         if: always()
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
@@ -1807,6 +1872,11 @@ jobs:
           const https   = require('https');
           const fs      = require('fs');
           const NTFY    = process.env.NTFY_TOPIC || '';
+
+          function safeTitle(str) {
+            return (str || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
+          }
+
           const isSuccess = process.env.GITHUB_JOB_STATUS !== 'failure';
           let info = { week: 'unknown', days: [] };
           let uploads = [], musicResults = [], trending = [];
@@ -1814,18 +1884,20 @@ jobs:
           try { uploads      = JSON.parse(fs.readFileSync('out/.upload_results.json', 'utf8')); } catch(e) {}
           try { musicResults = JSON.parse(fs.readFileSync('out/.music_results.json',  'utf8')); } catch(e) {}
           try { trending     = JSON.parse(fs.readFileSync('out/.trending_sounds.json','utf8')); } catch(e) {}
+
           const lines = [];
           lines.push('DWB Pipeline ' + (isSuccess ? 'COMPLETE' : 'FAILED'));
-          lines.push(info.week + ' | ' + new Date().toISOString().slice(0,10));
+          lines.push(info.week + ' | ' + new Date().toISOString().slice(0, 10));
           lines.push('');
+
           let passed = 0;
           for (const day of (info.days || [])) {
             const mp4  = 'out/' + day + '_final.mp4';
             const size = fs.existsSync(mp4) ? Math.round(fs.statSync(mp4).size / 1024 / 1024) : 0;
             if (size > 0) {
-              const upload = uploads.find(u => u.day === day);
-              const ytLink = upload && upload.status === 'ok' ? ' | ' + upload.url : '';
-              const music  = musicResults.find(m => m.day === day);
+              const upload = uploads.find(function(u) { return u.day === day; });
+              const ytLink = (upload && upload.status === 'ok') ? ' -> ' + upload.url : '';
+              const music  = musicResults.find(function(m) { return m.day === day; });
               const mood   = music ? ' [' + (music.mood || '') + ']' : '';
               lines.push(day + ' OK - ' + size + 'MB' + mood + ytLink);
               passed++;
@@ -1833,16 +1905,20 @@ jobs:
               lines.push(day + ' FAILED');
             }
           }
+
           lines.push('');
           lines.push('Result: ' + passed + '/' + (info.days || []).length + ' rendered');
-          const ytCount = uploads.filter(u => u.status === 'ok').length;
+          const ytCount = uploads.filter(function(u) { return u.status === 'ok'; }).length;
           if (ytCount > 0) lines.push('YouTube: ' + ytCount + ' uploaded');
+
           if (trending.length > 0) {
             lines.push('');
             lines.push('Top TikTok Sounds:');
-            trending.slice(0,3).forEach(s => lines.push('  ' + s.rank + '. ' + s.title + ' - ' + s.artist));
+            trending.slice(0, 3).forEach(function(s) { lines.push('  ' + s.rank + '. ' + s.title + ' - ' + s.artist); });
           }
+
           if (!NTFY) { console.log('NTFY_TOPIC not set -- skipping'); process.exit(0); }
+
           const message = lines.join('\n');
           const data    = Buffer.from(message);
           const req = https.request({
@@ -1851,12 +1927,12 @@ jobs:
             headers: {
               'Content-Type':   'text/plain',
               'Content-Length': data.length,
-              'Title':          'DWB ' + (isSuccess ? 'DONE' : 'FAILED') + ' - ' + info.week + ' - ' + passed + '/' + (info.days || []).length,
+              'Title':          safeTitle('DWB ' + (isSuccess ? 'DONE' : 'FAILED') + ' - ' + info.week + ' - ' + passed + '/' + (info.days || []).length),
               'Priority':       isSuccess ? 'default' : 'high',
               'Tags':           isSuccess ? 'white_check_mark,clapper' : 'x,warning',
             },
-          }, res => { console.log('ntfy sent: HTTP ' + res.statusCode); });
-          req.on('error', e => console.log('ntfy error: ' + e.message));
+          }, function(res) { console.log('ntfy sent: HTTP ' + res.statusCode); });
+          req.on('error', function(e) { console.log('ntfy error: ' + e.message); });
           req.write(data);
           req.end();
           EOF
