@@ -1,4 +1,4 @@
-import { OffthreadVideo, Img, Sequence, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, staticFile } from 'remotion';
+import { OffthreadVideo, Img, useCurrentFrame, useVideoConfig, interpolate, spring, Easing, staticFile } from 'remotion';
 import { AbsoluteFill } from 'remotion';
 
 // -----------------------------------------------------------------------------
@@ -10,140 +10,106 @@ import { AbsoluteFill } from 'remotion';
 //   photos: ['custom/img1.jpg', 'custom/img2.jpg']             (photo-carousel mode)
 // -----------------------------------------------------------------------------
 
+// v6 FIX: custom paths use full filename; standard clips get .mp4 appended
 const V = (name) => name.startsWith('custom/') ? staticFile('videos/' + name) : staticFile('videos/' + name + '.mp4');
 const P = (name) => staticFile('photos/' + name);
 
-// 6 clips per day
-const VIDEO_SETS = {
-  day29: [V('day29_clip1'),V('day29_clip2'),V('day29_clip3'),V('day29_clip4')],
-  day30: [V('day30_clip1'),V('day30_clip2'),V('day30_clip3'),V('day30_clip4')],
-  day31: [V('day31_clip1'),V('day31_clip2'),V('day31_clip3'),V('day31_clip4')],
-  day32: [V('day32_clip1'),V('day32_clip2'),V('day32_clip3'),V('day32_clip4')],
-  day33: [V('day33_clip1'),V('day33_clip2'),V('day33_clip3'),V('day33_clip4')],
-  day34: [V('day34_clip1'),V('day34_clip2'),V('day34_clip3'),V('day34_clip4')],
-  day35: [V('day35_clip1'),V('day35_clip2'),V('day35_clip3'),V('day35_clip4')],
-  day36: [V('day36_clip1'),V('day36_clip2'),V('day36_clip3'),V('day36_clip4')],
-  day37: [V('day37_clip1'),V('day37_clip2'),V('day37_clip3'),V('day37_clip4')],
-  day38: [V('day38_clip1'),V('day38_clip2'),V('day38_clip3'),V('day38_clip4')],
-  day39: [V('day39_clip1'),V('day39_clip2'),V('day39_clip3'),V('day39_clip4')],
-  day40: [V('day40_clip1'),V('day40_clip2'),V('day40_clip3'),V('day40_clip4')],
-  day41: [V('day41_clip1'),V('day41_clip2'),V('day41_clip3'),V('day41_clip4')],
-  day42: [V('day42_clip1'),V('day42_clip2'),V('day42_clip3'),V('day42_clip4')],
-  day43: [V('day43_clip1'),V('day43_clip2'),V('day43_clip3'),V('day43_clip4')],
-  day44: [V('day44_clip1'),V('day44_clip2'),V('day44_clip3'),V('day44_clip4')],
-  day45: [V('day45_clip1'),V('day45_clip2'),V('day45_clip3'),V('day45_clip4')],
-  day46: [V('day46_clip1'),V('day46_clip2'),V('day46_clip3'),V('day46_clip4')],
-  day47: [V('day47_clip1'),V('day47_clip2'),V('day47_clip3'),V('day47_clip4')],
-  day48: [V('day48_clip1'),V('day48_clip2'),V('day48_clip3'),V('day48_clip4')],
-  day49: [V('day49_clip1'),V('day49_clip2'),V('day49_clip3'),V('day49_clip4')],
-  day50: [V('day50_clip1'),V('day50_clip2'),V('day50_clip3'),V('day50_clip4')],
-  day51: [V('day51_clip1'),V('day51_clip2'),V('day51_clip3'),V('day51_clip4')],
-  day52: [V('day52_clip1'),V('day52_clip2'),V('day52_clip3'),V('day52_clip4')],
-  day53: [V('day53_clip1'),V('day53_clip2'),V('day53_clip3'),V('day53_clip4')],
-  day54: [V('day54_clip1'),V('day54_clip2'),V('day54_clip3'),V('day54_clip4')],
-  day55: [V('day55_clip1'),V('day55_clip2'),V('day55_clip3'),V('day55_clip4')],
-  day56: [V('day56_clip1'),V('day56_clip2'),V('day56_clip3'),V('day56_clip4')],
-  day57: [V('day57_clip1'),V('day57_clip2'),V('day57_clip3'),V('day57_clip4')],
-  day58: [V('day58_clip1'),V('day58_clip2'),V('day58_clip3'),V('day58_clip4')],
-  day59: [V('day59_clip1'),V('day59_clip2'),V('day59_clip3'),V('day59_clip4')],
-  day60: [V('day60_clip1'),V('day60_clip2'),V('day60_clip3'),V('day60_clip4')],
-  day61: [V('day61_clip1'),V('day61_clip2'),V('day61_clip3'),V('day61_clip4')],
-  day62: [V('day62_clip1'),V('day62_clip2'),V('day62_clip3'),V('day62_clip4')],
-  day63: [V('day63_clip1'),V('day63_clip2'),V('day63_clip3'),V('day63_clip4')],
-  day64: [V('day64_clip1'),V('day64_clip2'),V('day64_clip3'),V('day64_clip4')],
-  day65: [V('day65_clip1'),V('day65_clip2'),V('day65_clip3'),V('day65_clip4')],
-  day66: [V('day66_clip1'),V('day66_clip2'),V('day66_clip3'),V('day66_clip4')],
-  day67: [V('day67_clip1'),V('day67_clip2'),V('day67_clip3'),V('day67_clip4')],
-  day68: [V('day68_clip1'),V('day68_clip2'),V('day68_clip3'),V('day68_clip4')],
-  day69: [V('day69_clip1'),V('day69_clip2'),V('day69_clip3'),V('day69_clip4')],
-  day70: [V('day70_clip1'),V('day70_clip2'),V('day70_clip3'),V('day70_clip4')],
-  day71: [V('day71_clip1'),V('day71_clip2'),V('day71_clip3'),V('day71_clip4')],
-  day72: [V('day72_clip1'),V('day72_clip2'),V('day72_clip3'),V('day72_clip4')],
-  day73: [V('day73_clip1'),V('day73_clip2'),V('day73_clip3'),V('day73_clip4')],
-  day74: [V('day74_clip1'),V('day74_clip2'),V('day74_clip3'),V('day74_clip4')],
-  day75: [V('day75_clip1'),V('day75_clip2'),V('day75_clip3'),V('day75_clip4')],
-  day76: [V('day76_clip1'),V('day76_clip2'),V('day76_clip3'),V('day76_clip4')],
-  day77: [V('day77_clip1'),V('day77_clip2'),V('day77_clip3'),V('day77_clip4')],
-  day78: [V('day78_clip1'),V('day78_clip2'),V('day78_clip3'),V('day78_clip4')],
-  day79: [V('day79_clip1'),V('day79_clip2'),V('day79_clip3'),V('day79_clip4')],
-  day80: [V('day80_clip1'),V('day80_clip2'),V('day80_clip3'),V('day80_clip4')],
-  day81: [V('day81_clip1'),V('day81_clip2'),V('day81_clip3'),V('day81_clip4')],
-  day82: [V('day82_clip1'),V('day82_clip2'),V('day82_clip3'),V('day82_clip4')],
-  day83: [V('day83_clip1'),V('day83_clip2'),V('day83_clip3'),V('day83_clip4')],
-  day84: [V('day84_clip1'),V('day84_clip2'),V('day84_clip3'),V('day84_clip4')],
-  day85: [V('day85_clip1'),V('day85_clip2'),V('day85_clip3'),V('day85_clip4')],
-  day86: [V('day86_clip1'),V('day86_clip2'),V('day86_clip3'),V('day86_clip4')],
-  day87: [V('day87_clip1'),V('day87_clip2'),V('day87_clip3'),V('day87_clip4')],
-  day88: [V('day88_clip1'),V('day88_clip2'),V('day88_clip3'),V('day88_clip4')],
-  day89: [V('day89_clip1'),V('day89_clip2'),V('day89_clip3'),V('day89_clip4')],
-  day90: [V('day90_clip1'),V('day90_clip2'),V('day90_clip3'),V('day90_clip4')],
+// -----------------------------------------------------------------------------
+// VIDEO_SETS -- 6 clips per day (days 29-90)
+// Generated dynamically to avoid 300-line manual list.
+// Render.yml downloads 6 clips per day matching the 6 bRollQueries.
+// -----------------------------------------------------------------------------
+const VIDEO_SETS = {};
+for (let d = 29; d <= 90; d++) {
+  VIDEO_SETS['day' + d] = [
+    V('day' + d + '_clip1'),
+    V('day' + d + '_clip2'),
+    V('day' + d + '_clip3'),
+    V('day' + d + '_clip4'),
+    V('day' + d + '_clip5'),
+    V('day' + d + '_clip6'),
+  ];
+}
+
+// -----------------------------------------------------------------------------
+// MOTION PROFILES
+// kb (Ken Burns intensity) capped at 0.04 -- CSS scale above 1.06 blurs video.
+// All profiles adjusted for 6-clip distribution across 900 frames.
+// -----------------------------------------------------------------------------
+const MOTION_PROFILES = {
+  // Week 5
+  day29:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.07,panY:true},
+  day30:{clipDur:145,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:true},
+  day31:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day32:{clipDur:148,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:false},
+  day33:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  day34:{clipDur:138,xfade:5,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day35:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  // Week 6
+  day36:{clipDur:148,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:true},
+  day37:{clipDur:148,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
+  day38:{clipDur:150,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:false},
+  day39:{clipDur:143,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:true},
+  day40:{clipDur:138,xfade:5,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day41:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:false},
+  day42:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  // Week 7
+  day43:{clipDur:145,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
+  day44:{clipDur:150,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
+  day45:{clipDur:155,xfade:7,hookBurst:true,kb:0.03,rot:0.04,panY:true},
+  day46:{clipDur:148,xfade:7,hookBurst:false,kb:0.035,rot:0.05,panY:false},
+  day47:{clipDur:143,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day48:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day49:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  // Week 8
+  day50:{clipDur:150,xfade:7,hookBurst:true,kb:0.03,rot:0.05,panY:true},
+  day51:{clipDur:150,xfade:7,hookBurst:false,kb:0.035,rot:0.05,panY:false},
+  day52:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day53:{clipDur:150,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
+  day54:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  day55:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  day56:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  // Week 9
+  day57:{clipDur:148,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:true},
+  day58:{clipDur:150,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:false},
+  day59:{clipDur:145,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day60:{clipDur:155,xfade:7,hookBurst:true,kb:0.03,rot:0.04,panY:true},
+  day61:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day62:{clipDur:150,xfade:7,hookBurst:false,kb:0.035,rot:0.05,panY:false},
+  day63:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  // Week 10
+  day64:{clipDur:148,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
+  day65:{clipDur:150,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:false},
+  day66:{clipDur:143,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day67:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  day68:{clipDur:145,xfade:6,hookBurst:true,kb:0.035,rot:0.06,panY:false},
+  day69:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
+  day70:{clipDur:155,xfade:7,hookBurst:true,kb:0.03,rot:0.04,panY:true},
+  // Weeks 11-13 (generated days will use day50+ profiles as fallback)
+  day71:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.05,panY:false},
+  day72:{clipDur:148,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
+  day73:{clipDur:148,xfade:7,hookBurst:false,kb:0.035,rot:0.05,panY:false},
+  day74:{clipDur:143,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day75:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  day76:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day77:{clipDur:138,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day78:{clipDur:148,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
+  day79:{clipDur:150,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
+  day80:{clipDur:152,xfade:7,hookBurst:true,kb:0.03,rot:0.05,panY:true},
+  day81:{clipDur:148,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
+  day82:{clipDur:152,xfade:7,hookBurst:true,kb:0.03,rot:0.05,panY:true},
+  day83:{clipDur:145,xfade:6,hookBurst:false,kb:0.035,rot:0.06,panY:false},
+  day84:{clipDur:148,xfade:7,hookBurst:true,kb:0.035,rot:0.05,panY:false},
+  day85:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.05,panY:false},
+  day86:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
+  day87:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
+  day88:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
+  day89:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
+  day90:{clipDur:150,xfade:7,hookBurst:true,kb:0.03,rot:0.04,panY:true},
 };
 
-// Motion profiles -- kb reduced to max 0.04 to eliminate blur from scale transforms
-const MOTION_PROFILES = {
-  day29:{clipDur:165,xfade:8,hookBurst:true,kb:0.035,rot:0.08,panY:true},
-  day30:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:true},
-  day31:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day32:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:false},
-  day33:{clipDur:160,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day34:{clipDur:135,xfade:5,hookBurst:true,kb:0.04,rot:0.08,panY:false},
-  day35:{clipDur:165,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day36:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:true},
-  day37:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.07,panY:false},
-  day38:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:false},
-  day39:{clipDur:145,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:true},
-  day40:{clipDur:135,xfade:5,hookBurst:true,kb:0.04,rot:0.08,panY:false},
-  day41:{clipDur:158,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:false},
-  day42:{clipDur:162,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day43:{clipDur:148,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
-  day44:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
-  day45:{clipDur:162,xfade:8,hookBurst:true,kb:0.03,rot:0.04,panY:true},
-  day46:{clipDur:150,xfade:7,hookBurst:false,kb:0.035,rot:0.05,panY:false},
-  day47:{clipDur:145,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day48:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day49:{clipDur:160,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day50:{clipDur:155,xfade:7,hookBurst:true,kb:0.03,rot:0.05,panY:true},
-  day51:{clipDur:155,xfade:7,hookBurst:false,kb:0.035,rot:0.05,panY:false},
-  day52:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day53:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
-  day54:{clipDur:160,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day55:{clipDur:157,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day56:{clipDur:162,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day57:{clipDur:152,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:true},
-  day58:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:false},
-  day59:{clipDur:148,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day60:{clipDur:160,xfade:8,hookBurst:true,kb:0.03,rot:0.04,panY:true},
-  day61:{clipDur:142,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day62:{clipDur:155,xfade:7,hookBurst:false,kb:0.035,rot:0.05,panY:false},
-  day63:{clipDur:160,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day64:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
-  day65:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:false},
-  day66:{clipDur:145,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day67:{clipDur:158,xfade:7,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day68:{clipDur:148,xfade:6,hookBurst:true,kb:0.035,rot:0.06,panY:false},
-  day69:{clipDur:157,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
-  day70:{clipDur:160,xfade:8,hookBurst:true,kb:0.03,rot:0.04,panY:true},
-  day71:{clipDur:155,xfade:7,hookBurst:true,kb:0.035,rot:0.05,panY:false},
-  day72:{clipDur:152,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
-  day73:{clipDur:152,xfade:7,hookBurst:false,kb:0.035,rot:0.05,panY:false},
-  day74:{clipDur:148,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day75:{clipDur:160,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day76:{clipDur:142,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day77:{clipDur:140,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day78:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
-  day79:{clipDur:155,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
-  day80:{clipDur:157,xfade:7,hookBurst:true,kb:0.03,rot:0.05,panY:true},
-  day81:{clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
-  day82:{clipDur:157,xfade:7,hookBurst:true,kb:0.03,rot:0.05,panY:true},
-  day83:{clipDur:148,xfade:6,hookBurst:false,kb:0.035,rot:0.06,panY:false},
-  day84:{clipDur:152,xfade:7,hookBurst:true,kb:0.035,rot:0.05,panY:false},
-  day85:{clipDur:155,xfade:7,hookBurst:true,kb:0.035,rot:0.05,panY:false},
-  day86:{clipDur:142,xfade:6,hookBurst:true,kb:0.04,rot:0.07,panY:false},
-  day87:{clipDur:155,xfade:7,hookBurst:true,kb:0.035,rot:0.06,panY:false},
-  day88:{clipDur:157,xfade:7,hookBurst:false,kb:0.03,rot:0.05,panY:true},
-  day89:{clipDur:160,xfade:8,hookBurst:false,kb:0.03,rot:0.04,panY:true},
-  day90:{clipDur:165,xfade:8,hookBurst:true,kb:0.03,rot:0.04,panY:true},
-};
+// Default profile for generated videos (day91+)
+const DEFAULT_PROFILE = {clipDur:150,xfade:7,hookBurst:true,kb:0.035,rot:0.05,panY:true};
 
 const KB_DIRS = [
   {zoomDir:1,panXDir:-1,panYDir:0},
@@ -157,7 +123,9 @@ const KB_DIRS = [
 const FlashTransition = ({ clipIndex, duration }) => {
   const frame = useCurrentFrame();
   if (clipIndex === 0) return null;
-  const flashOpacity = interpolate(frame, [0, duration], [0.6, 0], { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+  const flashOpacity = interpolate(frame, [0, duration], [0.55, 0], {
+    extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic)
+  });
   return <AbsoluteFill style={{ background: '#FFFFFF', opacity: flashOpacity, pointerEvents: 'none' }} />;
 };
 
@@ -167,12 +135,12 @@ const HookBurst = ({ active }) => {
   if (!active || frame > 14) return null;
   const s = spring({ fps, frame, config: { damping: 6, stiffness: 320, mass: 0.5 } });
   const burstScale = interpolate(s, [0, 1], [1.05, 1.0]);
-  const burstOpacity = interpolate(frame, [0, 2, 14], [0.4, 0, 0], { extrapolateRight: 'clamp' });
+  const burstOpacity = interpolate(frame, [0, 2, 14], [0.35, 0, 0], { extrapolateRight: 'clamp' });
   return <AbsoluteFill style={{ transform: 'scale(' + burstScale + ')', opacity: burstOpacity, pointerEvents: 'none', background: 'rgba(255,255,255,0.04)' }} />;
 };
 
-// [KEY FIX] loop={true} on OffthreadVideo -- prevents frozen last-frame bug
-// [KEY FIX] kb values max 0.04 -- eliminates blur from CSS scale transforms
+// KEY FIX: loop={true} prevents frozen last-frame bug when clip ends before slot finishes
+// KEY FIX: kb values max 0.04 to eliminate blur from CSS scale transforms
 const BackgroundClip = ({ src, clipIndex, startFrame, clipDuration, profile, isFirst }) => {
   const frame = useCurrentFrame();
   const endFrame = startFrame + clipDuration;
@@ -190,12 +158,12 @@ const BackgroundClip = ({ src, clipIndex, startFrame, clipDuration, profile, isF
   );
 
   const panX = dir.panXDir === 0 ? 0 : interpolate(frame, [startFrame, endFrame],
-    dir.panXDir === 1 ? [0, 10] : [10, 0],
+    dir.panXDir === 1 ? [0, 9] : [9, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );
 
   const panY = (!profile.panY || dir.panYDir === 0) ? 0 : interpolate(frame, [startFrame, endFrame],
-    dir.panYDir === 1 ? [0, 6] : [6, 0],
+    dir.panYDir === 1 ? [0, 5] : [5, 0],
     { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }
   );
 
@@ -206,8 +174,15 @@ const BackgroundClip = ({ src, clipIndex, startFrame, clipDuration, profile, isF
 
   return (
     <AbsoluteFill style={{ opacity }}>
-      <AbsoluteFill style={{ transform: 'scale(' + zoom + ') translateX(' + panX + 'px) translateY(' + panY + 'px) rotate(' + rotation + 'deg)' }}>
-        <OffthreadVideo src={src} loop muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <AbsoluteFill style={{
+        transform: 'scale(' + zoom + ') translateX(' + panX + 'px) translateY(' + panY + 'px) rotate(' + rotation + 'deg)'
+      }}>
+        <OffthreadVideo
+          src={src}
+          loop
+          muted
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
       </AbsoluteFill>
       <FlashTransition clipIndex={clipIndex} duration={profile.xfade} />
       {isFirst && profile.hookBurst && <HookBurst active={true} />}
@@ -215,8 +190,7 @@ const BackgroundClip = ({ src, clipIndex, startFrame, clipDuration, profile, isF
   );
 };
 
-// Photo carousel -- rapid image slideshow with Ken Burns
-// Usage in week content: backgroundMode:'photo-carousel', photos:['custom/img1.jpg',...], photoSpeed:20
+// Photo carousel mode -- rapid image slideshow with Ken Burns
 const PhotoCarousel = ({ photos, framesPerPhoto = 20 }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
@@ -237,12 +211,12 @@ const PhotoCarousel = ({ photos, framesPerPhoto = 20 }) => {
         if (local < -3 || local > framesPerPhoto + 3) return null;
         const opacity = interpolate(local, [0, 4, framesPerPhoto - 4, framesPerPhoto], [0, 1, 1, 0],
           { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-        const dir = KB_DIRS[i % KB_DIRS.length];
+        const dir  = KB_DIRS[i % KB_DIRS.length];
         const zoom = interpolate(local, [0, framesPerPhoto],
           dir.zoomDir === 1 ? [1.0, 1.04] : [1.04, 1.0],
           { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
         const panX = dir.panXDir === 0 ? 0 : interpolate(local, [0, framesPerPhoto],
-          dir.panXDir === 1 ? [0, 8] : [8, 0],
+          dir.panXDir === 1 ? [0, 7] : [7, 0],
           { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
         return (
           <AbsoluteFill key={i} style={{ opacity }}>
@@ -272,12 +246,16 @@ const EndFade = () => {
   return <AbsoluteFill style={{ background: '#000', opacity: op, pointerEvents: 'none' }} />;
 };
 
-// Main export
-// New props: backgroundMode, customClips, photos, photoSpeed
+// -----------------------------------------------------------------------------
+// MAIN EXPORT
+// Props: videoId, backgroundMode, customClips, photos, photoSpeed
+// -----------------------------------------------------------------------------
 export const BackgroundVideo = ({ videoId, backgroundMode, customClips, photos, photoSpeed }) => {
-  const profile = MOTION_PROFILES[videoId] || MOTION_PROFILES.day29;
+  // Look up profile -- default for generated days (50+) that don't have explicit entries
+  const profile = MOTION_PROFILES[videoId] || DEFAULT_PROFILE;
   const { durationInFrames } = useVideoConfig();
 
+  // Photo carousel mode
   if (backgroundMode === 'photo-carousel') {
     return (
       <AbsoluteFill style={{ background: '#000' }}>
@@ -288,17 +266,23 @@ export const BackgroundVideo = ({ videoId, backgroundMode, customClips, photos, 
     );
   }
 
+  // Custom clips mode (from content file or generated video)
   const clips = (customClips && customClips.length > 0)
-    ? customClips.map(c => c.startsWith('custom/') ? staticFile('videos/' + c) : staticFile('videos/' + c + '.mp4'))
-    : (VIDEO_SETS[videoId] || VIDEO_SETS.day29);
+    ? customClips.map(c => c.startsWith('custom/')
+        ? staticFile('videos/' + c)
+        : staticFile('videos/' + c + '.mp4'))
+    : (VIDEO_SETS[videoId] || VIDEO_SETS['day50']);  // fallback to day50 if not found
 
+  // Distribute clips evenly across 900 frames
   const baseClipDur = Math.floor(durationInFrames / clips.length);
   const schedule = [];
   let cursor = 0;
   clips.forEach((src, i) => {
     if (cursor >= durationInFrames) return;
     const isLast = i === clips.length - 1;
-    const dur = isLast ? Math.max(durationInFrames - cursor, baseClipDur) : Math.min(baseClipDur, durationInFrames - cursor);
+    const dur = isLast
+      ? Math.max(durationInFrames - cursor, baseClipDur)
+      : Math.min(baseClipDur, durationInFrames - cursor);
     schedule.push({ src, clipIndex: i, startFrame: cursor, dur });
     cursor += dur;
   });
@@ -306,7 +290,15 @@ export const BackgroundVideo = ({ videoId, backgroundMode, customClips, photos, 
   return (
     <AbsoluteFill style={{ background: '#000' }}>
       {schedule.map(({ src, clipIndex, startFrame, dur }, i) => (
-        <BackgroundClip key={i} src={src} clipIndex={clipIndex} startFrame={startFrame} clipDuration={dur} profile={profile} isFirst={i === 0} />
+        <BackgroundClip
+          key={i}
+          src={src}
+          clipIndex={clipIndex}
+          startFrame={startFrame}
+          clipDuration={dur}
+          profile={profile}
+          isFirst={i === 0}
+        />
       ))}
       <AmbientPulse />
       <EndFade />
