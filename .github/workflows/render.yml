@@ -2,16 +2,15 @@ name: Render DWB Videos
 
 on:
   schedule:
-    - cron: '0 6 * * *'   # Daily 6AM UTC = 9AM EAT -- one video per day
-    # Add more crons here later for 4x/day: '0 9,12,15,18 * * *'
+    - cron: '0 16 * * *'   # 4PM UTC = 7PM EAT daily
   workflow_dispatch:
     inputs:
       days_override:
-        description: 'Force specific days (e.g. day36,day37). Leave blank to auto-generate via Groq.'
+        description: 'Specific days comma-separated (e.g. day37,day38,day39). Leave blank for Groq auto-generate.'
         required: false
         default: ''
       skip_groq_gen:
-        description: 'Set to true to skip Groq generation and use existing content files'
+        description: 'true = skip Groq, use existing content files'
         required: false
         default: 'false'
 
@@ -34,9 +33,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Google Fonts
+      - name: Install system fonts
         run: |
-          curl -sL "https://fonts.googleapis.com/css2?family=Archivo+Black&family=Barlow+Condensed:wght@700;800;900&family=Space+Grotesk:wght@700&display=swap" -o /dev/null
           sudo apt-get install -y fonts-liberation fontconfig -q --fix-missing || true
           echo "Fonts ready"
 
@@ -45,1200 +43,519 @@ jobs:
 
       - name: Create required directories
         run: |
-          mkdir -p public/videos
-          mkdir -p public/music
-          mkdir -p public/sfx
-          mkdir -p public/photos
-          mkdir -p out
-          mkdir -p out/thumbs
-          mkdir -p out/gifs
-          mkdir -p out/srt
+          mkdir -p public/videos public/music public/sfx public/photos
+          mkdir -p out out/thumbs out/gifs out/srt
 
       # =========================================================================
-      # STEP: GROQ SCRIPT GENERATION
-      # Runs when days_override is blank and skip_groq_gen is false.
-      # Reads video-counter.json, fetches trending context, generates fresh
-      # script via Groq, writes src/current-video.js + out/.week_info.json.
+      # GROQ SCRIPT GENERATION
+      # Runs only when: no days_override AND skip_groq_gen != true
+      # Writes src/current-video.js and out/.week_info.json
       # =========================================================================
       - name: Generate video script via Groq AI
         if: ${{ github.event.inputs.days_override == '' && github.event.inputs.skip_groq_gen != 'true' }}
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOPIC:   ${{ secrets.NTFY_TOPIC }}
         run: |
           sudo apt-get install -y ffmpeg -q --fix-missing 2>/dev/null || true
-          node << 'EOF'
+          node << 'GROQEOF'
           const fs    = require('fs');
           const https = require('https');
-
           const GROQ_KEY = process.env.GROQ_API_KEY || '';
           const NTFY     = process.env.NTFY_TOPIC    || '';
 
-          // -- 1. Read or init video counter --
-          let counter = { nextDay: 50, lastRendered: 'day49', lastRenderedAt: '' };
-          try { counter = JSON.parse(fs.readFileSync('video-counter.json', 'utf8')); } catch(e) {}
+          function safeTitle(s) { return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100); }
+
+          let counter = { nextDay: 50, lastRendered: 'day49' };
+          try { counter = JSON.parse(fs.readFileSync('video-counter.json','utf8')); } catch(e){}
           const dayNum = counter.nextDay;
           const dayId  = 'day' + dayNum;
-          console.log('Generating script for: ' + dayId);
+          console.log('Generating: ' + dayId);
 
-          // -- 2. Read content history --
           let history = [];
-          try { history = JSON.parse(fs.readFileSync('content-history.json', 'utf8')); } catch(e) {}
-          const recentTopics = history.slice(-25).map(function(h) { return h.title; }).join(' | ');
+          try { history = JSON.parse(fs.readFileSync('content-history.json','utf8')); } catch(e){}
+          const recentTopics = history.slice(-20).map(function(h){return h.title;}).join(' | ');
 
-          // -- 3. Ashley idea pool --
-          const ASHLEY_IDEAS = [
-            'The 3-account money system every wealthy person uses (checking, savings, investment)',
+          let trending = [];
+          try { trending = JSON.parse(fs.readFileSync('out/.trending_sounds.json','utf8')); } catch(e){}
+
+          const IDEAS = [
+            'The 3-account money system every wealthy person uses',
             'Why your salary is your most dangerous asset in 2026',
             'The 24-hour rule that permanently stops impulse spending',
-            'Why renting is not throwing money away (the actual math no one shows)',
-            'The debt payoff order that saves the most money (not minimum payments)',
+            'Why renting is not throwing money away -- the actual math',
+            'The debt payoff order that saves the most money',
             'What wealthy people do with their first $1,000 vs everyone else',
-            'The one tax move that reduces your bill by up to 30% legally',
-            'How inflation silently steals 3% of your money every single year',
-            'The automatic money system that runs without willpower or discipline',
-            'Why most budgets fail by week two -- and the fix that actually works',
-            'The investment account that has beaten savings accounts every decade for 100 years',
+            'The one tax move that reduces your bill by 30% legally',
+            'How inflation silently steals 3% of your money every year',
+            'The automatic money system that runs without willpower',
+            'Why most budgets fail by week two and the fix that works',
+            'The investment that beat savings accounts every decade for 100 years',
             'Why credit cards can make you rich if you know this one rule',
             'The side hustle that earned nothing for 60 days then paid rent in month 3',
             'How to negotiate your salary when you think you have no leverage',
             'The wealth gap is not about income -- its about what you do with it',
             'Why the stock market is not gambling if you know this one difference',
-            'The money habit that separates millionaires from everyone else at age 30',
-            'How to make money while you sleep (and its not what influencers sell)',
-            'The emergency fund math most people get wrong (its not 3 months)',
-            'Why paying off debt first is wrong for half of people (the math)',
-            'The compound effect of spending $15/day vs investing it from age 22',
-            'What banks do not want you to know about high-yield savings accounts',
-            'The one financial decision that changes everything -- and takes 15 minutes',
+            'The money habit that separates millionaires from everyone else at 30',
+            'How to make money while you sleep -- not what influencers sell',
+            'The emergency fund math most people get wrong',
+            'Why paying off debt first is wrong for half of people',
+            'The compound effect of spending $15/day vs investing it from 22',
+            'What banks do not want you to know about high-yield savings',
+            'The one financial decision that changes everything in 15 minutes',
             'Why most financial advice was written for people who had pensions',
-            'The income streams that work without showing your face or going viral',
+            'The income streams that work without showing your face online',
+            'The net worth number you need at each age to stay on track',
+            'Why your car is the single biggest wealth destroyer for most people',
+            'The 50/30/20 rule is wrong for low income earners -- the fix',
+            'What actually happens to your money when you buy an index fund',
+            'The psychological trick that makes saving feel effortless',
+            'Why people who earn $200K still go broke -- lifestyle creep explained',
+            'The only 3 financial metrics that matter and how to track them',
           ];
-          const ideaIdx  = dayNum % ASHLEY_IDEAS.length;
-          const mainIdea = ASHLEY_IDEAS[ideaIdx];
-          const extraIdea = ASHLEY_IDEAS[(ideaIdx + 7) % ASHLEY_IDEAS.length];
+          const HOOK_ANIMS = ['zoom-punch','stamp-impact','word-pop','stacked-giant','kinetic-mixed','spotlight-reveal','comic-impact','neon-flicker','elastic-snap','glitch'];
+          const BODY_ANIMS = ['stagger','word-bounce','blur-in','split-reveal','fade','flip-up','letter-drop','multi-line','wave-cascade','slide-up'];
+          const CTA_ANIMS  = ['kinetic','word-bounce','stamp-impact','word-pop','neon-flicker','caps','bounce'];
+          const FONTS = [
+            {hookFont:'Anton',bodyFont:'Montserrat'},{hookFont:'Bebas',bodyFont:'Archivo'},
+            {hookFont:'Barlow',bodyFont:'Grotesk'},{hookFont:'Anton',bodyFont:'Mono'},
+            {hookFont:'Oswald',bodyFont:'Montserrat'},{hookFont:'Barlow',bodyFont:'Montserrat'},
+          ];
+          const COLORS = [
+            {hook:'#CAFF00',body:'#FFFFFF',alt:'#FFD700',cta:'#CAFF00'},
+            {hook:'#FF4444',body:'#FFFFFF',alt:'#FFD700',cta:'#FF4444'},
+            {hook:'#00D4FF',body:'#FFFFFF',alt:'#CAFF00',cta:'#00D4FF'},
+            {hook:'#FFFFFF',body:'#CAFF00',alt:'#FFD700',cta:'#FF4444'},
+            {hook:'#FF9900',body:'#FFFFFF',alt:'#FF4444',cta:'#CAFF00'},
+          ];
+          const HASHTAGS = ['personalfinance','wealthbuilding','financialfreedom','moneytips','moneyhabits','investing101','sidehustle','passiveincome','makemoneyonline','budgeting','compoundinterest','financialliteracy','wealthmindset','savemoney','moneymoves'];
 
-          // -- 4. Build Groq prompt (no template literals) --
-          const prompt = 'You are Ashley, AI script writer for @DailyWealthBuilding -- a faceless automated personal finance YouTube Shorts channel.\n\n' +
-            'CHANNEL RULES:\n' +
-            '- Target: Level 4 Unaware Audience (they do not know they have a money problem)\n' +
-            '- Format: 30-second vertical video, 900 frames at 30fps, 1080x1920\n' +
-            '- Accent color: #CAFF00 (acid yellow-green)\n' +
-            '- Maximum 5 overlays per video\n\n' +
-            'RECENT TOPICS (do NOT repeat these):\n' +
-            (recentTopics || 'none yet') + '\n\n' +
-            'IDEAS TO BUILD ON (pick one or combine):\n' +
-            '1. ' + mainIdea + '\n' +
-            '2. ' + extraIdea + '\n\n' +
+          const idea1 = IDEAS[dayNum % IDEAS.length];
+          const idea2 = IDEAS[(dayNum + 11) % IDEAS.length];
+          const fontPair = FONTS[dayNum % FONTS.length];
+          const colorScheme = COLORS[dayNum % COLORS.length];
+          const trendCtx = trending.length > 0 ? '\nTRENDING SOUNDS: ' + trending.slice(0,3).map(function(s){return s.title+' - '+s.artist;}).join(', ') : '';
+
+          const prompt = 'You are Ashley, AI creative director for @DailyWealthBuilding -- a faceless automated finance YouTube Shorts channel.\n\n' +
+            'MISSION: Generate a complete scroll-stopping 30-second video script + visual config for ' + dayId + ' of 90.\n\n' +
+            'RECENT TOPICS (do NOT repeat): ' + (recentTopics||'none yet') + trendCtx + '\n\n' +
+            'IDEAS TO BUILD ON (pick one or fuse):\n1. ' + idea1 + '\n2. ' + idea2 + '\n\n' +
+            'FONT PAIR FOR THIS VIDEO: hookFont=' + fontPair.hookFont + ', bodyFont=' + fontPair.bodyFont + '\n' +
+            'COLOR SCHEME: hook=' + colorScheme.hook + ', body=' + colorScheme.body + ', alt=' + colorScheme.alt + ', cta=' + colorScheme.cta + '\n\n' +
             'OVERLAY TIMING (900 frames = 30 seconds):\n' +
-            '- [0] HOOK: startFrame 0, endFrame 90 (3s) -- ONE sentence. Stops the scroll.\n' +
-            '- [1] TRUTH: startFrame 90, endFrame 270 (6s) -- The uncomfortable reality\n' +
-            '- [2] PROOF: startFrame 270, endFrame 450 (6s) -- Data or contrast or story\n' +
-            '- [3] SYSTEM: startFrame 450, endFrame 720 (9s) -- Simple actionable framework\n' +
-            '- [4] CTA: startFrame 720, endFrame 900 (6s) -- Comment bait + follow ask\n\n' +
-            'STYLE RULES:\n' +
-            '- Font Anton: hooks and CTAs. Font Montserrat: body text.\n' +
-            '- Hook fontSize: 86-90. Body fontSize: 70-78. CTA fontSize: 80-84.\n' +
-            '- Hook color: #CAFF00. Body alternates #FFFFFF and #FFD700. CTA: #CAFF00.\n' +
-            '- All overlays need stroke: {"size": 3, "color": "#000000"} for Anton, {"size": 2, "color": "#000000"} for Montserrat.\n' +
-            '- Animations (pick from this list only): zoom-punch, word-bounce, stagger, blur-in, fade, kinetic, flip-up, split-reveal, letter-drop, panel-split, glitch\n' +
-            '- NO highlight-box animation ever.\n' +
-            '- Hook position: middle. Body: middle. CTA: bottom-center.\n\n' +
-            'B-ROLL QUERIES (6 required, each must match the overlay section visually):\n' +
-            '- Query 1 matches HOOK (shock / surprising visual)\n' +
-            '- Query 2 matches TRUTH (pain point / relatable struggle)\n' +
-            '- Query 3 matches PROOF (contrast / data visualization / lifestyle gap)\n' +
-            '- Query 4 matches SYSTEM (planning / action / working)\n' +
-            '- Query 5 = aspirational outcome footage\n' +
-            '- Query 6 = engagement energy (city life / people reacting / trending visual)\n' +
-            '- Each query must end with "vertical" and be 4-6 words specific\n\n' +
-            'STRICT RULES:\n' +
-            '- No income promises or specific dollar earning claims\n' +
-            '- No medical claims\n' +
-            '- musicMood must be one of: punchy, motivational, confident, dramatic, focused, rebellious, uplifting\n' +
-            '- YouTube description: 150-250 words, use arrow bullets\n' +
-            '- TikTok caption: max 150 chars, ends with 👇, 3-4 hashtags\n\n' +
-            'Return ONLY valid JSON. No markdown. No backticks. No explanation. Just JSON.\n\n' +
-            'FORMAT:\n' +
-            '{"title":"internal title","musicMood":"punchy","bRollQueries":["q1 vertical","q2 vertical","q3 vertical","q4 vertical","q5 vertical","q6 vertical"],"overlays":[{"text":"HOOK","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"zoom-punch","startFrame":0,"endFrame":90,"position":"middle","fontSize":88},{"text":"truth text","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"word-bounce","startFrame":90,"endFrame":270,"position":"middle","fontSize":76},{"text":"proof","font":"Montserrat","color":"#FFD700","stroke":{"size":2,"color":"#000000"},"animation":"blur-in","startFrame":270,"endFrame":450,"position":"middle","fontSize":76},{"text":"system","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"stagger","startFrame":450,"endFrame":720,"position":"middle","fontSize":72},{"text":"CTA text 👇","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"kinetic","startFrame":720,"endFrame":900,"position":"bottom-center","fontSize":82}],"youtubeTitle":"Title | Day ' + dayNum + '/90 | Daily Wealth Building","youtubeDescription":"Day ' + dayNum + ' of 90 description...","tiktokCaption":"caption 👇 #day' + dayNum + '","pinnedComment":"key insight"}';
+            '[0] HOOK   0-90   (3s) -- ONE sentence. Stops scroll cold.\n' +
+            '[1] TRUTH  90-270 (6s) -- The uncomfortable reality\n' +
+            '[2] PROOF  270-450(6s) -- Data / contrast / story\n' +
+            '[3] SYSTEM 450-720(9s) -- Simple 3-step actionable framework\n' +
+            '[4] CTA    720-900(6s) -- Comment bait + follow + identity trigger\n\n' +
+            'HOOK animation (pick 1): ' + HOOK_ANIMS.join(', ') + '\n' +
+            'BODY animations (pick 1 each, never repeat): ' + BODY_ANIMS.join(', ') + '\n' +
+            'CTA animation (pick 1): ' + CTA_ANIMS.join(', ') + '\n\n' +
+            'CONTENT RULES:\n' +
+            '- Level 4 Unaware Audience (they dont know they have a money problem)\n' +
+            '- Hook works without sound -- pure visual\n' +
+            '- Max 2 lines per overlay, 1 idea\n' +
+            '- Specific number in hook ("3 habits", "$100/month", "67%")\n' +
+            '- Identity targeting when possible ("If you earn under X...")\n' +
+            '- No income promises\n' +
+            '- CTA creates personal stake\n\n' +
+            'B-ROLL QUERIES (exactly 6, aligned to overlay sections):\n' +
+            '- Query 1: matches HOOK visually (shocking, surprising)\n' +
+            '- Query 2: matches TRUTH (pain point, relatable)\n' +
+            '- Query 3: matches PROOF (contrast, data visualization)\n' +
+            '- Query 4: matches SYSTEM (action, planning, working)\n' +
+            '- Query 5: ASPIRATION outcome footage\n' +
+            '- Query 6: ENERGY/engagement (city life, reaction)\n' +
+            '- Every query MUST end with "vertical"\n' +
+            '- Be SPECIFIC: "person shocked bank statement phone vertical" NOT "money vertical"\n\n' +
+            'STROKE: Anton/Bebas/Barlow: size 3 | Montserrat/Arquivo/Grotesk: size 2. ALL overlays need stroke.\n' +
+            'SIZES: hook 84-92px, body 68-78px, cta 80-88px. Never same size twice.\n' +
+            'letterSpacing "0.02em" on hook and CTA.\n\n' +
+            'HASHTAGS (pick 4-5): ' + HASHTAGS.join(', ') + ', day' + dayNum + 'of90\n\n' +
+            'musicMood: one of punchy/motivational/confident/dramatic/focused/rebellious/uplifting\n\n' +
+            'Return ONLY valid JSON. No markdown. No backticks. No explanation.\n\n' +
+            '{"title":"short title","musicMood":"punchy","bRollQueries":["specific query vertical","specific query vertical","specific query vertical","specific query vertical","specific query vertical","specific query vertical"],"overlays":[{"text":"HOOK TEXT","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"zoom-punch","startFrame":0,"endFrame":90,"position":"middle","fontSize":88,"letterSpacing":"0.02em"},{"text":"truth text","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"word-bounce","startFrame":90,"endFrame":270,"position":"middle","fontSize":76},{"text":"proof text","font":"Montserrat","color":"#FFD700","stroke":{"size":2,"color":"#000000"},"animation":"stagger","startFrame":270,"endFrame":450,"position":"middle","fontSize":72},{"text":"system text","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"blur-in","startFrame":450,"endFrame":720,"position":"middle","fontSize":68},{"text":"CTA text 👇","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"kinetic","startFrame":720,"endFrame":900,"position":"bottom-center","fontSize":84,"letterSpacing":"0.02em"}],"youtubeTitle":"Title | Day ' + dayNum + '/90 | Daily Wealth Building","youtubeDescription":"Day ' + dayNum + ' of 90 -- description with arrow bullets\\n\\n🔔 Subscribe\\n@DailyWealthBuilding","tiktokCaption":"caption 👇 #personalfinance #day' + dayNum + 'of90","pinnedComment":"key insight"}';
 
-          // -- 5. Call Groq --
-          function callGroq(prompt) {
+          function callGroq(p) {
             return new Promise(function(resolve, reject) {
-              const body = JSON.stringify({
-                model:       'llama-3.3-70b-versatile',
-                max_tokens:  2000,
-                temperature: 0.8,
-                messages:    [{ role: 'user', content: prompt }],
+              const body = JSON.stringify({ model:'llama-3.3-70b-versatile', max_tokens:2000, temperature:0.85, messages:[{role:'user',content:p}] });
+              const req  = https.request({ hostname:'api.groq.com', path:'/openai/v1/chat/completions', method:'POST', headers:{ 'Content-Type':'application/json', 'Content-Length':Buffer.byteLength(body), 'Authorization':'Bearer '+GROQ_KEY } }, function(res) {
+                let d=''; res.on('data',function(c){d+=c;}); res.on('end',function(){resolve({status:res.statusCode,body:d});});
               });
-              const req = https.request({
-                hostname: 'api.groq.com',
-                path:     '/openai/v1/chat/completions',
-                method:   'POST',
-                headers:  {
-                  'Content-Type':   'application/json',
-                  'Content-Length': Buffer.byteLength(body),
-                  'Authorization':  'Bearer ' + GROQ_KEY,
-                },
-              }, function(res) {
-                let data = '';
-                res.on('data', function(d) { data += d; });
-                res.on('end', function() { resolve({ status: res.statusCode, body: data }); });
-              });
-              req.on('error', reject);
-              req.write(body);
-              req.end();
+              req.on('error',reject); req.write(body); req.end();
             });
           }
 
-          function sendNtfy(message, title) {
+          function sendNtfy(msg, title) {
             if (!NTFY) return Promise.resolve();
-            const data = Buffer.from(message);
+            const data = Buffer.from(msg);
             return new Promise(function(resolve) {
-              const safeTitle = title.replace(/[^\x20-\x7E]/g, '').trim();
-              const req = https.request({
-                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
-                headers: {
-                  'Content-Type': 'text/plain', 'Content-Length': data.length,
-                  'Title': safeTitle, 'Tags': 'robot,pencil', 'Priority': 'default',
-                },
-              }, function(res) { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
-              req.on('error', function() { resolve(); });
-              req.write(data);
-              req.end();
+              const req = https.request({ hostname:'ntfy.sh', port:443, path:'/'+NTFY, method:'POST', headers:{ 'Content-Type':'text/plain', 'Content-Length':data.length, 'Title':safeTitle(title), 'Tags':'robot,pencil', 'Priority':'default' } }, function(res){ resolve(); });
+              req.on('error', function(){resolve();}); req.write(data); req.end();
             });
           }
 
           (async function() {
-            if (!GROQ_KEY) {
-              console.log('GROQ_API_KEY not set -- skipping generation');
-              process.exit(0);
-            }
-
+            if (!GROQ_KEY) { console.log('No GROQ_API_KEY -- skipping'); process.exit(0); }
             try {
-              console.log('Calling Groq to generate script for ' + dayId + '...');
-              const res  = await callGroq(prompt);
+              const res = await callGroq(prompt);
+              if (res.status !== 200) { console.log('Groq HTTP ' + res.status + '\n' + res.body.slice(0,300)); process.exit(0); }
+              const api = JSON.parse(res.body);
+              let raw = (((api.choices||[])[0]||{}).message||{}).content || '';
+              raw = raw.replace(/```json|```/g,'').trim();
+              let vd;
+              try { vd = JSON.parse(raw); }
+              catch(e) { console.log('JSON parse failed: '+e.message+'\nRaw: '+raw.slice(0,400)); process.exit(0); }
 
-              if (res.status !== 200) {
-                console.log('Groq error: HTTP ' + res.status);
-                console.log(res.body.slice(0, 300));
-                process.exit(0);
+              vd.id = dayId; vd.filename = dayId+'_final.mp4'; vd.music = dayId+'.mp3';
+              if (!vd.bRollQueries || vd.bRollQueries.length < 6) {
+                vd.bRollQueries = vd.bRollQueries || [];
+                const def = 'finance city lifestyle success vertical';
+                while (vd.bRollQueries.length < 6) vd.bRollQueries.push(def);
               }
+              if (!vd.overlays || !vd.overlays.length) { console.log('No overlays returned'); process.exit(1); }
 
-              const apiData = JSON.parse(res.body);
-              let raw = (apiData.choices && apiData.choices[0] && apiData.choices[0].message && apiData.choices[0].message.content) || '';
-              raw = raw.replace(/```json|```/g, '').trim();
-
-              let videoData;
-              try {
-                videoData = JSON.parse(raw);
-              } catch(e) {
-                console.log('Failed to parse Groq JSON: ' + e.message);
-                console.log('Raw (first 500): ' + raw.slice(0, 500));
-                process.exit(0);
-              }
-
-              // Inject required fields
-              videoData.id       = dayId;
-              videoData.filename = dayId + '_final.mp4';
-              videoData.music    = dayId + '.mp3';
-
-              // Validate overlays
-              if (!videoData.overlays || videoData.overlays.length === 0) {
-                console.log('ERROR: Groq returned no overlays');
-                process.exit(1);
-              }
-
-              // Validate bRollQueries -- must have 6
-              if (!videoData.bRollQueries || videoData.bRollQueries.length < 6) {
-                console.log('WARNING: Less than 6 bRollQueries, padding...');
-                const defaultQ = 'finance wealth success city lifestyle vertical';
-                while ((videoData.bRollQueries || []).length < 6) {
-                  if (!videoData.bRollQueries) videoData.bRollQueries = [];
-                  videoData.bRollQueries.push(defaultQ);
-                }
-              }
-
-              // Write src/current-video.js
-              const jsContent = '// Auto-generated by Groq AI for ' + dayId + ' -- ' + new Date().toISOString().slice(0, 10) + '\n' +
-                'export const currentVideo = ' + JSON.stringify(videoData, null, 2) + ';\n';
-              fs.mkdirSync('src', { recursive: true });
-              fs.writeFileSync('src/current-video.js', jsContent);
-              console.log('Wrote src/current-video.js');
-
-              // Build and write out/.week_info.json
-              const dayAssets = {};
-              dayAssets[dayId] = videoData.bRollQueries.map(function(q, i) {
-                return { id: dayId + '_clip' + (i + 1), q: q };
-              });
-
-              const dayMeta = {};
-              dayMeta[dayId] = {
-                youtubeTitle:       videoData.youtubeTitle       || '',
-                youtubeDescription: videoData.youtubeDescription || '',
-                tiktokCaption:      videoData.tiktokCaption      || '',
-                pinnedComment:      videoData.pinnedComment      || '',
-                music:              dayId + '.mp3',
-                musicMood:          videoData.musicMood          || 'motivational',
-              };
-
-              fs.mkdirSync('out', { recursive: true });
-              fs.writeFileSync('out/.week_info.json', JSON.stringify({
-                week:     'groq-generated',
-                days:     [dayId],
-                dayAssets: dayAssets,
-                dayMeta:   dayMeta,
-              }, null, 2));
-              console.log('Wrote out/.week_info.json');
-
-              // Update content-history
-              history.push({
-                day:        dayId,
-                title:      videoData.title || videoData.youtubeTitle || dayId,
-                musicMood:  videoData.musicMood || '',
-                hook:       (videoData.overlays[0] || {}).text || '',
-                generatedAt: new Date().toISOString(),
-              });
-              if (history.length > 60) history = history.slice(-60);
-              fs.writeFileSync('content-history.json', JSON.stringify(history, null, 2));
-              console.log('Updated content-history.json (' + history.length + ' entries)');
-
-              // Report
-              console.log('\n=== GROQ GENERATION COMPLETE ===');
-              console.log('Day:    ' + dayId);
-              console.log('Title:  ' + videoData.title);
-              console.log('Hook:   ' + ((videoData.overlays[0] || {}).text || '').replace(/\n/g, ' '));
-              console.log('Clips:  ' + videoData.bRollQueries.length);
-              console.log('Mood:   ' + videoData.musicMood);
-
-              await sendNtfy(
-                'Script generated for ' + dayId + '\n' +
-                'Title: ' + (videoData.title || '') + '\n' +
-                'Hook: ' + ((videoData.overlays[0] || {}).text || '').replace(/\n/g, ' ').slice(0, 80) + '\n' +
-                'Clips: ' + videoData.bRollQueries.length + ' queries ready',
-                'DWB Script Ready -- ' + dayId
+              fs.mkdirSync('src',{recursive:true});
+              fs.writeFileSync('src/current-video.js',
+                '// Auto-generated by Groq AI -- ' + dayId + ' -- ' + new Date().toISOString().slice(0,10) + '\n' +
+                'export const currentVideo = ' + JSON.stringify(vd, null, 2) + ';\n'
               );
 
-            } catch(e) {
-              console.log('Groq generation error: ' + e.message);
-              // Non-fatal: pipeline will fall back to content file detection
-            }
+              const dayAssets = {};
+              dayAssets[dayId] = vd.bRollQueries.map(function(q,i){ return {id:dayId+'_clip'+(i+1), q:q}; });
+              const dayMeta = {};
+              dayMeta[dayId] = { youtubeTitle:vd.youtubeTitle||'', youtubeDescription:vd.youtubeDescription||'', tiktokCaption:vd.tiktokCaption||'', pinnedComment:vd.pinnedComment||'', music:dayId+'.mp3', musicMood:vd.musicMood||'motivational' };
+
+              fs.mkdirSync('out',{recursive:true});
+              fs.writeFileSync('out/.week_info.json', JSON.stringify({ week:'groq-generated', days:[dayId], dayAssets:dayAssets, dayMeta:dayMeta }, null, 2));
+
+              history.push({ day:dayId, title:vd.title||dayId, hook:((vd.overlays[0]||{}).text||'').replace(/\n/g,' '), generatedAt:new Date().toISOString() });
+              if (history.length > 60) history = history.slice(-60);
+              fs.writeFileSync('content-history.json', JSON.stringify(history, null, 2));
+
+              console.log('Generated: ' + dayId + ' | ' + vd.title);
+              console.log('Hook: ' + ((vd.overlays[0]||{}).text||'').replace(/\n/g,' ').slice(0,80));
+              console.log('bRollQueries: ' + vd.bRollQueries.join(' | '));
+
+              await sendNtfy(
+                'Script ready: ' + dayId + '\nTitle: ' + (vd.title||'') + '\nHook: ' + ((vd.overlays[0]||{}).text||'').replace(/\n/g,' ').slice(0,80) + '\nClips: ' + vd.bRollQueries.length,
+                'DWB Script Ready ' + dayId
+              );
+            } catch(e) { console.log('Groq error: ' + e.message); }
           })();
-          EOF
+          GROQEOF
 
       # =========================================================================
-      # STEP: DETECT ACTIVE WEEK
-      # If week_info already written by Groq, just export env vars.
-      # Otherwise, auto-detect from content files.
+      # DETECT ACTIVE WEEK
+      # KEY FIX: When days_override is set, searches ALL content files for
+      # matching day IDs. Prevents week7 being picked when rendering week6 days.
       # =========================================================================
       - name: Detect active week from content files
         run: |
-          node << 'EOF'
+          node << 'DETECTEOF'
           const fs   = require('fs');
           const path = require('path');
- 
+
           const skipGroq     = '${{ github.event.inputs.skip_groq_gen }}' === 'true';
           const daysOverride = '${{ github.event.inputs.days_override }}' || '';
           const hasWeekInfo  = fs.existsSync('out/.week_info.json');
           const useGroq      = hasWeekInfo && !skipGroq && !daysOverride;
- 
+
           if (useGroq) {
-            // Groq already wrote out/.week_info.json -- just export env vars
-            console.log('Using Groq-generated week info');
             const info    = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8'));
             const envFile = process.env.GITHUB_ENV;
             if (envFile) {
               fs.appendFileSync(envFile, 'ACTIVE_WEEK=' + info.week + '\n');
               fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + info.days.join(' ') + '\n');
             }
-            console.log('Active week: ' + info.week + ' | Days: ' + info.days.join(', '));
+            console.log('Groq mode: ' + info.week + ' | Days: ' + info.days.join(', '));
+            process.exit(0);
+          }
+
+          // Load ALL content files and collect ALL entries
+          const srcDir       = path.join(process.cwd(), 'src');
+          const allFiles     = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
+          const contentFiles = allFiles.filter(function(f) { return f.match(/^week\d+-content\.js$/); });
+
+          if (contentFiles.length === 0) {
+            console.log('ERROR: No week content files found in src/');
+            process.exit(1);
+          }
+
+          // Collect ALL entries from ALL week files
+          let allEntries = [];
+          for (const file of contentFiles) {
+            try {
+              const source = fs.readFileSync(path.join(srcDir, file), 'utf8');
+              const dm = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
+              const nm = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
+              const arr = dm ? dm[1] : (nm ? nm[1] : null);
+              if (!arr) { console.log('Warning: could not parse ' + file); continue; }
+              const entries = eval(arr);
+              allEntries = allEntries.concat(entries);
+              console.log('Loaded ' + entries.length + ' entries from ' + file);
+            } catch(e) { console.log('Warning: ' + file + ': ' + e.message); }
+          }
+
+          if (allEntries.length === 0) {
+            console.log('ERROR: No entries found across all content files');
+            process.exit(1);
+          }
+
+          // Determine which days are active
+          let activeDays;
+          if (daysOverride) {
+            // CRITICAL: Use exactly the override days, not the highest week
+            activeDays = daysOverride.split(',').map(function(d) { return d.trim(); }).filter(Boolean);
+            console.log('Override days: ' + activeDays.join(', '));
           } else {
-            // Auto-detect from week content files
-            console.log('Auto-detecting from content files');
-            const srcDir       = path.join(process.cwd(), 'src');
-            const allFiles     = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
-            const contentFiles = allFiles.filter(function(f) { return f.match(/^week\d+-content\.js$/); });
- 
-            if (contentFiles.length === 0) {
-              console.log('ERROR: No week content files found in src/');
-              process.exit(1);
-            }
- 
+            // No override: use highest week file
             const weekNums = contentFiles
               .map(function(f) { return parseInt(f.match(/week(\d+)/)[1]); })
-              .sort(function(a, b) { return b - a; });
-            const activeWeek = weekNums[0];
-            const activeFile = path.join(srcDir, 'week' + activeWeek + '-content.js');
-            console.log('Active week file: ' + activeFile);
- 
-            const source = fs.readFileSync(activeFile, 'utf8');
-            let entries  = [];
-            const dm     = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
-            const nm     = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-            const arr    = dm ? dm[1] : (nm ? nm[1] : null);
- 
-            if (!arr) {
-              console.log('ERROR: Could not parse content array from ' + activeFile);
-              process.exit(1);
-            }
- 
-            try { entries = eval(arr); } catch(e) {
-              console.log('ERROR: eval failed: ' + e.message);
-              process.exit(1);
-            }
- 
-            const days = entries.map(function(e) { return e.id; }).filter(Boolean);
-            console.log('Days detected: ' + days.join(', '));
- 
-            const dayAssets = {};
-            for (const entry of entries) {
-              if (!entry.id || (!entry.pexelsSearchTerms && !entry.bRollQueries)) continue;
-              dayAssets[entry.id] = (entry.bRollQueries || entry.pexelsSearchTerms)
-                .slice(0, 6)
-                .map(function(q, i) { return { id: entry.id + '_clip' + (i + 1), q: q }; });
-            }
- 
-            const dayMeta = {};
-            for (const entry of entries) {
-              if (!entry.id) continue;
-              dayMeta[entry.id] = {
-                youtubeTitle:       entry.youtubeTitle       || '',
-                youtubeDescription: entry.youtubeDescription || '',
-                tiktokCaption:      entry.tiktokCaption      || '',
-                pinnedComment:      entry.pinnedComment      || '',
-                music:              entry.music              || '',
-                musicMood:          entry.musicMood          || '',
-              };
-            }
- 
-            fs.mkdirSync('out', { recursive: true });
-            fs.writeFileSync('out/.week_info.json', JSON.stringify({
-              week:     'week' + activeWeek,
-              days:     days,
-              dayAssets: dayAssets,
-              dayMeta:   dayMeta,
-            }, null, 2));
- 
-            const envFile = process.env.GITHUB_ENV;
-            if (envFile) {
-              fs.appendFileSync(envFile, 'ACTIVE_WEEK=week' + activeWeek + '\n');
-              fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + days.join(' ') + '\n');
-            }
- 
-            console.log('Active week: week' + activeWeek);
-            console.log('Week info written to out/.week_info.json');
+              .sort(function(a,b) { return b-a; });
+            const topWeekFile = path.join(srcDir, 'week' + weekNums[0] + '-content.js');
+            const source = fs.readFileSync(topWeekFile, 'utf8');
+            const dm = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
+            const nm = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
+            const arr = dm ? dm[1] : (nm ? nm[1] : null);
+            try { activeDays = arr ? eval(arr).map(function(e){return e.id;}).filter(Boolean) : []; }
+            catch(e) { activeDays = []; }
+            console.log('Auto week' + weekNums[0] + ': ' + activeDays.join(', '));
           }
-          EOF
- 
+
+          // Filter allEntries to ONLY the active days
+          const activeEntries = allEntries.filter(function(e) {
+            return e.id && activeDays.indexOf(e.id) !== -1;
+          });
+
+          if (activeEntries.length === 0) {
+            console.log('ERROR: No entries found for: ' + activeDays.join(', '));
+            console.log('Available: ' + allEntries.map(function(e){return e.id;}).join(', '));
+            process.exit(1);
+          }
+
+          console.log('Active entries: ' + activeEntries.map(function(e){return e.id;}).join(', '));
+
+          // Build dayAssets (always 6 clips, pad if needed)
+          const dayAssets = {};
+          const FALLBACK_QUERIES = [
+            'person working laptop city lifestyle vertical',
+            'financial freedom success outdoor vertical',
+          ];
+          for (const entry of activeEntries) {
+            const queries = (entry.bRollQueries || entry.pexelsSearchTerms || []).slice(0, 6);
+            const padded  = queries.slice();
+            let fi = 0;
+            while (padded.length < 6) { padded.push(FALLBACK_QUERIES[fi % FALLBACK_QUERIES.length]); fi++; }
+            dayAssets[entry.id] = padded.map(function(q, i) { return { id: entry.id + '_clip' + (i+1), q: q }; });
+          }
+
+          // Build dayMeta
+          const dayMeta = {};
+          for (const entry of activeEntries) {
+            if (!entry.id) continue;
+            dayMeta[entry.id] = {
+              youtubeTitle:       entry.youtubeTitle       || '',
+              youtubeDescription: entry.youtubeDescription || '',
+              tiktokCaption:      entry.tiktokCaption      || '',
+              pinnedComment:      entry.pinnedComment      || '',
+              music:              entry.music              || '',
+              musicMood:          entry.musicMood          || '',
+            };
+          }
+
+          const weekLabel = daysOverride ? 'override' : 'week-auto';
+          fs.mkdirSync('out', { recursive: true });
+          fs.writeFileSync('out/.week_info.json', JSON.stringify({ week:weekLabel, days:activeDays, dayAssets:dayAssets, dayMeta:dayMeta }, null, 2));
+
+          const envFile = process.env.GITHUB_ENV;
+          if (envFile) {
+            fs.appendFileSync(envFile, 'ACTIVE_WEEK=' + weekLabel + '\n');
+            fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + activeDays.join(' ') + '\n');
+          }
+          console.log('week_info written. Days: ' + activeDays.join(', '));
+          DETECTEOF
 
       # =========================================================================
-      # STEP: DOWNLOAD SFX
+      # DOWNLOAD SFX
       # =========================================================================
-      - name: Download SFX (Freesound CDN + ffmpeg silent fallback)
+      - name: Download SFX
         run: |
           sudo apt-get install -y ffmpeg -q --fix-missing 2>/dev/null || true
           mkdir -p public/sfx
-          node << 'EOF'
-          const https = require('https');
-          const http  = require('http');
-          const fs    = require('fs');
-          const SFX_POOLS = {
-            whoosh: [
-              'https://cdn.freesound.org/previews/416/416474_5121236-lq.mp3',
-              'https://cdn.freesound.org/previews/537/537744_11861866-lq.mp3',
-            ],
-            impact: [
-              'https://cdn.freesound.org/previews/321/321485_5260872-lq.mp3',
-              'https://cdn.freesound.org/previews/369/369515_6895985-lq.mp3',
-            ],
-            ping: [
-              'https://cdn.freesound.org/previews/411/411090_5121236-lq.mp3',
-              'https://cdn.freesound.org/previews/336/336899_971382-lq.mp3',
-            ],
-            cheer: [
-              'https://cdn.freesound.org/previews/397/397353_4284968-lq.mp3',
-              'https://cdn.freesound.org/previews/170/170380_1517528-lq.mp3',
-            ],
+          node << 'SFXEOF'
+          const https=require('https'),http=require('http'),fs=require('fs');
+          const POOLS={
+            whoosh:['https://cdn.freesound.org/previews/416/416474_5121236-lq.mp3'],
+            impact:['https://cdn.freesound.org/previews/321/321485_5260872-lq.mp3'],
+            ping:  ['https://cdn.freesound.org/previews/411/411090_5121236-lq.mp3'],
+            cheer: ['https://cdn.freesound.org/previews/397/397353_4284968-lq.mp3'],
           };
-          const download = function(url, dest) {
-            return new Promise(function(resolve, reject) {
-              const file = fs.createWriteStream(dest);
-              const get  = function(u) {
-                const lib = u.startsWith('https') ? https : http;
-                lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, function(res) {
-                  if (res.statusCode === 301 || res.statusCode === 302) {
-                    file.close(); return get(res.headers.location);
-                  }
-                  if (res.statusCode !== 200) { file.close(); reject(new Error('HTTP ' + res.statusCode)); return; }
-                  res.pipe(file);
-                  file.on('finish', function() { file.close(); resolve(); });
-                }).on('error', function(e) { file.close(); reject(e); });
-              };
-              get(url);
-            });
-          };
-          (async function() {
-            for (const slot of Object.keys(SFX_POOLS)) {
-              const pool = SFX_POOLS[slot];
-              const dest = 'public/sfx/' + slot + '.mp3';
-              if (fs.existsSync(dest)) fs.unlinkSync(dest);
-              const shuffled = pool.slice().sort(function() { return Math.random() - 0.5; });
-              let ok = false;
-              for (const url of shuffled) {
-                try {
-                  await download(url, dest);
-                  const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-                  if (size > 5000) { console.log('SFX OK: ' + slot); ok = true; break; }
-                  if (fs.existsSync(dest)) fs.unlinkSync(dest);
-                } catch(e) { if (fs.existsSync(dest)) fs.unlinkSync(dest); }
-              }
-              if (!ok) console.log('WARNING: ' + slot + ' -- silent fallback will be used');
-            }
-            console.log('SFX download complete');
-          })();
-          EOF
+          const dl=function(url,dest){return new Promise(function(resolve,reject){const f=fs.createWriteStream(dest);const get=function(u){const lib=u.startsWith('https')?https:http;lib.get(u,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302){f.close();return get(res.headers.location);}if(res.statusCode!==200){f.close();reject(new Error('HTTP '+res.statusCode));return;}res.pipe(f);f.on('finish',function(){f.close();resolve();});}).on('error',function(e){f.close();reject(e);});};get(url);});};
+          (async function(){for(const slot of Object.keys(POOLS)){const dest='public/sfx/'+slot+'.mp3';let ok=false;for(const url of POOLS[slot]){try{await dl(url,dest);if(fs.existsSync(dest)&&fs.statSync(dest).size>5000){ok=true;break;}if(fs.existsSync(dest))fs.unlinkSync(dest);}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);}}if(!ok)console.log('SFX WARN: '+slot+' failed');else console.log('SFX OK: '+slot);}})();
+          SFXEOF
           for SFX in whoosh impact ping cheer; do
             FILE="public/sfx/${SFX}.mp3"
             if [ ! -f "$FILE" ] || [ ! -s "$FILE" ]; then
-              echo "Creating silent fallback for ${SFX}.mp3"
-              ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -q:a 9 -acodec libmp3lame "$FILE" -y -loglevel error 2>/dev/null || true
+              ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -q:a 9 -acodec libmp3lame "$FILE" -y -loglevel error 2>/dev/null || echo "Silent fallback: $SFX"
             fi
           done
-          echo "SFX check complete"
 
       # =========================================================================
-      # STEP: DOWNLOAD MUSIC
+      # DOWNLOAD MUSIC
       # =========================================================================
-      - name: Download music per day (Jamendo -> FMA -> Pixabay -> prev track)
+      - name: Download music (Jamendo -> Pixabay -> fallback)
         env:
           JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          PIXABAY_API_KEY:   ${{ secrets.PIXABAY_API_KEY }}
         run: |
           mkdir -p public/music
-          node << 'EOF'
-          const https = require('https');
-          const http  = require('http');
-          const fs    = require('fs');
+          node << 'MUSICEOF'
+          const https=require('https'),http=require('http'),fs=require('fs');
+          const JK=process.env.JAMENDO_CLIENT_ID||'',PK=process.env.PIXABAY_API_KEY||'';
+          const JTAGS={punchy:'energetic+upbeat',motivational:'motivational+positive',confident:'jazz+cool',dramatic:'epic+dramatic',focused:'ambient+focus',rebellious:'rock+energetic',uplifting:'uplifting+happy',melancholic:'sad+melancholic',chill:'chill+lofi',emotional:'emotional+piano',epic:'epic+orchestral'};
+          const PMOODS={punchy:'energetic',motivational:'uplifting',confident:'corporate',dramatic:'dramatic',focused:'calm',rebellious:'upbeat',uplifting:'happy',melancholic:'melancholic'};
+          const DMOODS={};for(let i=1;i<=90;i++)DMOODS[i]=['punchy','motivational','confident','dramatic','focused','rebellious','uplifting','melancholic'][i%8];
+          const fetchJSON=function(url){return new Promise(function(resolve,reject){const lib=url.startsWith('https')?https:http;lib.get(url,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302)return fetchJSON(res.headers.location).then(resolve).catch(reject);let d='';res.on('data',function(c){d+=c;});res.on('end',function(){try{resolve(JSON.parse(d));}catch(e){reject(e);}});}).on('error',reject);});};
+          const dlFile=function(url,dest){return new Promise(function(resolve,reject){const f=fs.createWriteStream(dest);const get=function(u){const lib=u.startsWith('https')?https:http;lib.get(u,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302){f.close();return get(res.headers.location);}if(res.statusCode!==200){f.close();reject(new Error('HTTP '+res.statusCode));return;}res.pipe(f);f.on('finish',function(){f.close();resolve();});}).on('error',function(e){f.close();reject(e);});};get(url);});};
+          const sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
+          async function tryJamendo(mood,dest){if(!JK)return false;try{const url='https://api.jamendo.com/v3.0/tracks/?client_id='+JK+'&format=json&limit=10&tags='+(JTAGS[mood]||'motivational+upbeat')+'&order=popularity_week&audioformat=mp32&license_cc=1';const data=await fetchJSON(url);const tracks=(data.results||[]).filter(function(t){return t.audio;});if(!tracks.length)throw new Error('no results');const pick=tracks[Math.floor(Math.random()*Math.min(5,tracks.length))];await dlFile(pick.audio,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('Jamendo OK: '+pick.name);return true;}if(fs.existsSync(dest))fs.unlinkSync(dest);throw new Error('too small');}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);console.log('Jamendo fail: '+e.message);return false;}}
+          async function tryPixabay(mood,dest){if(!PK)return false;try{const url='https://pixabay.com/api/videos/music/?key='+PK+'&mood='+(PMOODS[mood]||'upbeat')+'&per_page=10';const data=await fetchJSON(url);const hits=(data.hits||[]).filter(function(h){return h.audio;});if(!hits.length)throw new Error('no results');const pick=hits[Math.floor(Math.random()*Math.min(5,hits.length))];await dlFile(pick.audio,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('Pixabay music OK');return true;}if(fs.existsSync(dest))fs.unlinkSync(dest);throw new Error('too small');}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);console.log('Pixabay music fail: '+e.message);return false;}}
+          (async function(){let info={days:[],dayMeta:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}const days=info.days||[];if(!days.length){console.log('No days');process.exit(0);}const results=[];for(const day of days){const dest='public/music/'+day+'.mp3';if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){console.log('CACHED: '+day);results.push({day:day,status:'cached'});continue;}if(fs.existsSync(dest))fs.unlinkSync(dest);const dn=parseInt(day.replace('day',''));const mood=((info.dayMeta||{})[day]||{}).musicMood||DMOODS[dn]||'motivational';console.log('--- '+day+' mood:'+mood+' ---');let ok=await tryJamendo(mood,dest);if(!ok){await sleep(1000);ok=await tryPixabay(mood,dest);}if(!ok){let p=dn-1;while(p>=1){const pf='public/music/day'+p+'.mp3';if(fs.existsSync(pf)&&fs.statSync(pf).size>50000){fs.copyFileSync(pf,dest);console.log(day+': fallback from day'+p);ok=true;break;}p--;}}results.push({day:day,status:ok?'ok':'failed',mood:mood});}fs.writeFileSync('out/.music_results.json',JSON.stringify(results,null,2));console.log('Music done: '+results.filter(function(r){return r.status!=='failed';}).length+'/'+days.length);})();
+          MUSICEOF
 
-          const JAMENDO_KEY = process.env.JAMENDO_CLIENT_ID || '';
-          const PIXABAY_KEY = process.env.PIXABAY_API_KEY   || '';
-
-          const JAMENDO_TAGS  = { punchy:'energetic+upbeat', motivational:'motivational+positive', confident:'jazz+cool', dramatic:'epic+dramatic', focused:'ambient+focus', rebellious:'rock+energetic', uplifting:'uplifting+happy', melancholic:'sad+melancholic', chill:'chill+lofi', emotional:'emotional+piano', epic:'epic+orchestral' };
-          const PIXABAY_MOODS = { punchy:'energetic', motivational:'uplifting', confident:'corporate', dramatic:'dramatic', focused:'calm', rebellious:'upbeat', uplifting:'happy', melancholic:'melancholic' };
-          const FMA_GENRES    = { punchy:'Electronic', motivational:'Hip-Hop', confident:'Jazz', dramatic:'Classical', focused:'Ambient', rebellious:'Rock', uplifting:'Pop', melancholic:'Ambient' };
-          const DAY_MOODS     = {};
-          for (let i = 1; i <= 90; i++) DAY_MOODS[i] = ['punchy','motivational','confident','dramatic','focused','rebellious','uplifting','melancholic'][i % 8];
-
-          const fetchJSON = function(url) {
-            return new Promise(function(resolve, reject) {
-              const lib = url.startsWith('https') ? https : http;
-              lib.get(url, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, function(res) {
-                if (res.statusCode === 301 || res.statusCode === 302)
-                  return fetchJSON(res.headers.location).then(resolve).catch(reject);
-                let data = '';
-                res.on('data', function(d) { data += d; });
-                res.on('end', function() {
-                  try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('JSON parse failed')); }
-                });
-              }).on('error', reject);
-            });
-          };
-
-          const downloadFile = function(url, dest) {
-            return new Promise(function(resolve, reject) {
-              const file = fs.createWriteStream(dest);
-              const get  = function(u) {
-                const lib = u.startsWith('https') ? https : http;
-                lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, function(res) {
-                  if (res.statusCode === 301 || res.statusCode === 302) { file.close(); return get(res.headers.location); }
-                  if (res.statusCode !== 200) { file.close(); reject(new Error('HTTP ' + res.statusCode)); return; }
-                  res.pipe(file);
-                  file.on('finish', function() { file.close(); resolve(); });
-                }).on('error', function(e) { file.close(); reject(e); });
-              };
-              get(url);
-            });
-          };
-
-          const sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
-
-          async function tryJamendo(mood, dest) {
-            if (!JAMENDO_KEY) return false;
-            try {
-              const tag  = JAMENDO_TAGS[mood] || 'motivational+upbeat';
-              const url  = 'https://api.jamendo.com/v3.0/tracks/?client_id=' + JAMENDO_KEY + '&format=json&limit=10&tags=' + tag + '&order=popularity_week&audioformat=mp32&license_cc=1';
-              const data = await fetchJSON(url);
-              const tracks = (data.results || []).filter(function(t) { return t.audio; });
-              if (tracks.length === 0) throw new Error('No results');
-              const pick = tracks[Math.floor(Math.random() * Math.min(5, tracks.length))];
-              console.log('Jamendo: "' + pick.name + '" by ' + pick.artist_name);
-              await downloadFile(pick.audio, dest);
-              const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-              if (size > 50000) return true;
-              if (fs.existsSync(dest)) fs.unlinkSync(dest);
-              throw new Error('File too small: ' + size);
-            } catch(e) {
-              console.log('Jamendo failed: ' + e.message);
-              if (fs.existsSync(dest)) fs.unlinkSync(dest);
-              return false;
-            }
-          }
-
-          async function tryPixabay(mood, dest) {
-            if (!PIXABAY_KEY) return false;
-            try {
-              const pmood = PIXABAY_MOODS[mood] || 'upbeat';
-              const url   = 'https://pixabay.com/api/videos/music/?key=' + PIXABAY_KEY + '&mood=' + pmood + '&per_page=10';
-              const data  = await fetchJSON(url);
-              const hits  = (data.hits || []).filter(function(h) { return h.audio; });
-              if (hits.length === 0) throw new Error('No results');
-              const pick  = hits[Math.floor(Math.random() * Math.min(5, hits.length))];
-              console.log('Pixabay music: "' + pick.title + '"');
-              await downloadFile(pick.audio, dest);
-              const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-              if (size > 50000) return true;
-              if (fs.existsSync(dest)) fs.unlinkSync(dest);
-              throw new Error('File too small');
-            } catch(e) {
-              console.log('Pixabay music failed: ' + e.message);
-              if (fs.existsSync(dest)) fs.unlinkSync(dest);
-              return false;
-            }
-          }
-
-          (async function() {
-            let info = { days: [], dayMeta: {} };
-            try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
-            const days    = info.days    || [];
-            const dayMeta = info.dayMeta || {};
-
-            if (days.length === 0) { console.log('No days found -- skipping music'); process.exit(0); }
-
-            let downloaded = 0, skipped = 0, failed = 0;
-            const results = [];
-
-            for (const day of days) {
-              const dest = 'public/music/' + day + '.mp3';
-              if (fs.existsSync(dest) && fs.statSync(dest).size > 50000) {
-                console.log('SKIP (cached): ' + day);
-                skipped++;
-                results.push({ day: day, status: 'cached' });
-                continue;
-              }
-              if (fs.existsSync(dest)) fs.unlinkSync(dest);
-              const dayNum = parseInt(day.replace('day', ''));
-              const mood   = (dayMeta[day] && dayMeta[day].musicMood) || DAY_MOODS[dayNum] || 'motivational';
-              console.log('\n--- ' + day + ' | mood: ' + mood + ' ---');
-              let ok = await tryJamendo(mood, dest);
-              if (!ok) { await sleep(1000); ok = await tryPixabay(mood, dest); }
-              if (!ok) {
-                let prev = dayNum - 1;
-                while (prev >= 1) {
-                  const pf = 'public/music/day' + prev + '.mp3';
-                  if (fs.existsSync(pf) && fs.statSync(pf).size > 50000) {
-                    fs.copyFileSync(pf, dest);
-                    console.log(day + ': using day' + prev + ' as fallback');
-                    ok = true; break;
-                  }
-                  prev--;
-                }
-              }
-              if (ok) { downloaded++; results.push({ day: day, status: 'downloaded', mood: mood }); }
-              else    { failed++;     results.push({ day: day, status: 'failed',     mood: mood }); }
-              await sleep(500);
-            }
-
-            fs.writeFileSync('out/.music_results.json', JSON.stringify(results, null, 2));
-            console.log('\n--- Music Summary ---');
-            console.log('Downloaded: ' + downloaded + ' | Cached: ' + skipped + ' | Failed: ' + failed);
-            if (failed > 0 && failed === days.length) { console.log('CRITICAL: All music failed'); process.exit(1); }
-          })();
-          EOF
-
-      - name: Fetch TikTok trending sounds (weekly inspiration)
+      - name: Fetch TikTok trending sounds
         continue-on-error: true
         run: |
-          node << 'EOF'
-          const https = require('https');
-          const fs    = require('fs');
-          const ENDPOINTS = [
-            'https://ads.tiktok.com/creative_radar_api/v1/popular_trend/music/list?period=7&page=1&limit=10',
-          ];
-          const fetchJSON = function(url) {
-            return new Promise(function(resolve, reject) {
-              https.get(url, {
-                headers: {
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                  'Accept': 'application/json',
-                  'Referer': 'https://ads.tiktok.com/',
-                }
-              }, function(res) {
-                if (res.statusCode === 301 || res.statusCode === 302)
-                  return fetchJSON(res.headers.location).then(resolve).catch(reject);
-                let data = '';
-                res.on('data', function(d) { data += d; });
-                res.on('end', function() {
-                  try { resolve(JSON.parse(data)); } catch(e) { reject(new Error('Not JSON')); }
-                });
-              }).on('error', reject);
-            });
-          };
-          (async function() {
-            let sounds = [];
-            for (const url of ENDPOINTS) {
-              try {
-                const data  = await fetchJSON(url);
-                const items = (data && data.data && data.data.list) || [];
-                if (items.length > 0) {
-                  sounds = items.slice(0, 10).map(function(item, i) {
-                    return {
-                      rank: i + 1,
-                      title:      (item.music_info && item.music_info.title)  || 'Trending #' + (i + 1),
-                      artist:     (item.music_info && item.music_info.author) || 'Unknown',
-                      usageCount: item.post_num || '--',
-                      scrapedAt:  new Date().toISOString(),
-                    };
-                  });
-                  break;
-                }
-              } catch(e) { console.log('TikTok endpoint failed: ' + e.message); }
-            }
-            fs.writeFileSync('out/.trending_sounds.json', JSON.stringify(sounds, null, 2));
-            console.log('Trending sounds: ' + sounds.length + ' fetched');
-          })();
-          EOF
+          node << 'TIKTOKEOF'
+          const https=require('https'),fs=require('fs');
+          https.get('https://ads.tiktok.com/creative_radar_api/v1/popular_trend/music/list?period=7&page=1&limit=10',{headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json','Referer':'https://ads.tiktok.com/'}},function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){try{const data=JSON.parse(d);const items=(data&&data.data&&data.data.list)||[];const sounds=items.slice(0,10).map(function(item,i){return{rank:i+1,title:(item.music_info&&item.music_info.title)||'Trending #'+(i+1),artist:(item.music_info&&item.music_info.author)||'Unknown',usageCount:item.post_num||'--'};});fs.writeFileSync('out/.trending_sounds.json',JSON.stringify(sounds,null,2));console.log('Trending: '+sounds.length+' sounds');}catch(e){console.log('TikTok fetch failed: '+e.message);fs.writeFileSync('out/.trending_sounds.json','[]');}});}).on('error',function(e){console.log('TikTok error: '+e.message);fs.writeFileSync('out/.trending_sounds.json','[]');});
+          TIKTOKEOF
 
       - name: Run pre-render validator
         run: |
-          if [ -f "validate.js" ]; then
-            node validate.js && echo "Validation passed" || exit 1
-          else
-            echo "validate.js not found - skipping"
-          fi
+          if [ -f "validate.js" ]; then node validate.js && echo "Validation passed" || exit 1
+          else echo "validate.js not found -- skipping"; fi
 
       # =========================================================================
-      # STEP: AI HOOK SCORER
-      # FIX: Strip emoji and non-ASCII from ntfy Title header to prevent
-      # "Invalid character in header content" error.
+      # AI HOOK SCORER
+      # FIX: safeTitle() strips emoji from ntfy Title header
       # =========================================================================
-      - name: AI Hook Scorer (Groq API -- pre-render quality gate)
+      - name: AI Hook Scorer (Groq quality gate)
         continue-on-error: true
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOPIC:   ${{ secrets.NTFY_TOPIC }}
         run: |
-          node << 'EOF'
-          const fs   = require('fs');
-          const path = require('path');
-          const https = require('https');
-          const GROQ_KEY = process.env.GROQ_API_KEY || '';
-          const NTFY     = process.env.NTFY_TOPIC   || '';
-
-          // Helper: strip non-ASCII from ntfy Title header (prevents HTTP header error)
-          function safeTitle(str) {
-            return (str || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
-          }
-
-          // Load video data from week_info
-          let info = { days: [], dayMeta: {} };
-          let entries = [];
-          try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
-
-          // Check if using generated video
-          let generatedVideo = null;
-          if (fs.existsSync('src/current-video.js')) {
-            try {
-              const source = fs.readFileSync('src/current-video.js', 'utf8');
-              const match  = source.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);
-              if (match) generatedVideo = JSON.parse(match[1]);
-            } catch(e) {}
-          }
-
-          if (generatedVideo) {
-            entries = [generatedVideo];
-          } else {
-            const srcDir   = path.join(process.cwd(), 'src');
-            const allFiles = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
-            const files    = allFiles.filter(function(f) { return f.match(/^week\d+-content\.js$/); });
-            const wNums    = files.map(function(f) { return parseInt(f.match(/week(\d+)/)[1]); }).sort(function(a,b) { return b-a; });
-
-            if (wNums.length === 0) { console.log('No content files -- skipping.'); process.exit(0); }
-
-            const activeFile = path.join(srcDir, 'week' + wNums[0] + '-content.js');
-            const source     = fs.readFileSync(activeFile, 'utf8');
-            try {
-              const dm  = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
-              const nm  = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-              const arr = dm ? dm[1] : (nm ? nm[1] : null);
-              if (arr) entries = eval(arr);
-            } catch(e) { console.log('Could not parse content file: ' + e.message); process.exit(0); }
-          }
-
-          if (entries.length === 0) { console.log('No entries -- skipping.'); process.exit(0); }
-
-          const hooks = entries.map(function(e) {
-            return {
-              id:   e.id,
-              hook: (e.overlays && e.overlays[0]) ? e.overlays[0].text.replace(/\n/g, ' ') : 'N/A',
-              topic: e.title || e.id,
-            };
-          });
-
-          console.log('Scoring ' + hooks.length + ' hook(s) via Groq...');
-
-          const hookLines = hooks.map(function(h, i) {
-            return (i + 1) + '. [' + h.id + '] Hook: "' + h.hook + '" | Topic: "' + h.topic + '"';
-          }).join('\n');
-
-          const prompt = 'You are an expert short-form finance video strategist. Score each hook 1-10 for viral potential on TikTok and YouTube Shorts.\n\n' +
-            'Criteria: scroll-stopping power, 2-second readability, emotional trigger, specificity, compliance.\n\n' +
-            'Hooks:\n' + hookLines + '\n\n' +
-            'Respond ONLY with valid JSON:\n' +
-            '{"scores":[{"id":"day50","score":8,"strength":"brief","weakness":"brief","suggestion":"improved hook"}],"avgScore":7.5,"weakest":"day50","strongest":"day50","readyToRender":true,"summary":"one line"}';
-
-          function callGroq(p) {
-            return new Promise(function(resolve, reject) {
-              const body = JSON.stringify({
-                model: 'llama-3.3-70b-versatile',
-                max_tokens: 1000,
-                temperature: 0.3,
-                messages: [{ role: 'user', content: p }],
-              });
-              const req = https.request({
-                hostname: 'api.groq.com',
-                path:     '/openai/v1/chat/completions',
-                method:   'POST',
-                headers:  {
-                  'Content-Type':   'application/json',
-                  'Content-Length': Buffer.byteLength(body),
-                  'Authorization':  'Bearer ' + GROQ_KEY,
-                },
-              }, function(res) {
-                let data = '';
-                res.on('data', function(d) { data += d; });
-                res.on('end', function() { resolve({ status: res.statusCode, body: data }); });
-              });
-              req.on('error', reject);
-              req.write(body);
-              req.end();
-            });
-          }
-
-          function sendNtfy(message, title, priority) {
-            if (!NTFY) return Promise.resolve();
-            const data = Buffer.from(message);
-            return new Promise(function(resolve) {
-              const req = https.request({
-                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
-                headers: {
-                  'Content-Type':   'text/plain',
-                  'Content-Length': data.length,
-                  'Title':          safeTitle(title),    // FIXED: strip emoji from header
-                  'Tags':           'robot',
-                  'Priority':       priority || 'default',
-                },
-              }, function(res) { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
-              req.on('error', function() { resolve(); });
-              req.write(data);
-              req.end();
-            });
-          }
-
-          (async function() {
-            try {
-              const res  = await callGroq(prompt);
-              const data = JSON.parse(res.body);
-
-              if (res.status !== 200) {
-                console.log('Groq error: HTTP ' + res.status);
-                process.exit(0);
-              }
-
-              const raw    = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
-              const clean  = raw.replace(/```json|```/g, '').trim();
-              const result = JSON.parse(clean);
-
-              console.log('\n=== AI HOOK SCORES ===');
-              console.log('Average: ' + result.avgScore + '/10');
-              console.log('Strongest: ' + result.strongest);
-              console.log('Weakest:   ' + result.weakest);
-
-              const weakHooks = [];
-              const lines = [];
-
-              result.scores.forEach(function(s) {
-                const bar = '|'.repeat(Math.round(s.score)) + '.'.repeat(10 - Math.round(s.score));
-                console.log(s.id + ' [' + s.score + '/10] ' + bar);
-                if (s.score < 7) weakHooks.push(s);
-                const label = s.score >= 8 ? 'GREAT' : s.score >= 7 ? 'GOOD' : 'WEAK';
-                lines.push(label + ' ' + s.id + ': ' + s.score + '/10 - ' + (s.strength || '').slice(0, 50));
-              });
-
-              lines.push('');
-              lines.push(result.summary || '');
-
-              if (weakHooks.length > 0) {
-                lines.push('');
-                lines.push('Rewrites:');
-                weakHooks.forEach(function(s) {
-                  lines.push(s.id + ': "' + (s.suggestion || '').slice(0, 60) + '"');
-                });
-              }
-
-              // FIXED: safeTitle() strips emoji from Title header
-              await sendNtfy(
-                lines.join('\n'),
-                'DWB Hook Scores - Avg ' + result.avgScore + '/10 - ' + (result.readyToRender ? 'READY' : 'NEEDS WORK'),
-                result.avgScore >= 7.5 ? 'high' : 'default'
-              );
-
-            } catch(e) {
-              console.log('Hook Scorer error (non-fatal): ' + e.message);
-            }
-          })();
-          EOF
+          node << 'SCOREREOF'
+          const fs=require('fs'),path=require('path'),https=require('https');
+          const GROQ=process.env.GROQ_API_KEY||'', NTFY=process.env.NTFY_TOPIC||'';
+          function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
+          let entries=[];
+          if(fs.existsSync('src/current-video.js')){try{const src=fs.readFileSync('src/current-video.js','utf8');const m=src.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);if(m)entries=[JSON.parse(m[1])];}catch(e){}}
+          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const src=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=src.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);const nm=src.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr);}catch(e){}}}
+          if(!entries.length){console.log('No entries -- skipping scorer');process.exit(0);}
+          const hooks=entries.map(function(e){return{id:e.id,hook:((e.overlays||[])[0]||{}).text||'N/A',topic:e.title||e.id};});
+          const hookLines=hooks.map(function(h,i){return (i+1)+'. ['+h.id+'] Hook: "'+h.hook.replace(/\n/g,' ')+'" | Topic: "'+h.topic+'"';}).join('\n');
+          const prompt='Score each hook 1-10 for TikTok/Shorts viral potential.\nCriteria: scroll-stop power, 2-second readability, emotional trigger, specificity, compliance.\n\nHooks:\n'+hookLines+'\n\nReturn ONLY valid JSON:\n{"scores":[{"id":"day37","score":8,"strength":"brief","weakness":"brief","suggestion":"improved hook"}],"avgScore":7.5,"weakest":"day37","strongest":"day37","readyToRender":true,"summary":"one line"}';
+          function callGroq(p){return new Promise(function(resolve,reject){const body=JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:800,temperature:0.3,messages:[{role:'user',content:p}]});const req=https.request({hostname:'api.groq.com',path:'/openai/v1/chat/completions',method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'Authorization':'Bearer '+GROQ}},function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){resolve({status:res.statusCode,body:d});});});req.on('error',reject);req.write(body);req.end();});}
+          function sendNtfy(msg,title){if(!NTFY)return Promise.resolve();const data=Buffer.from(msg);return new Promise(function(resolve){const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle(title),'Tags':'robot','Priority':'default'}},function(res){resolve();});req.on('error',function(){resolve();});req.write(data);req.end();});}
+          (async function(){if(!GROQ){console.log('No GROQ key -- skipping');process.exit(0);}try{const res=await callGroq(prompt);if(res.status!==200){console.log('Groq HTTP '+res.status);process.exit(0);}const data=JSON.parse(res.body);const raw=(((data.choices||[])[0]||{}).message||{}).content||'';const result=JSON.parse(raw.replace(/```json|```/g,'').trim());console.log('\n=== HOOK SCORES ===\nAvg: '+result.avgScore+'/10 | Strongest: '+result.strongest+' | Weakest: '+result.weakest);const lines=[];(result.scores||[]).forEach(function(s){const label=s.score>=8?'GREAT':s.score>=7?'GOOD':'WEAK';console.log(s.id+' ['+s.score+'/10] '+label+' -- '+(s.strength||'').slice(0,60));lines.push(label+' '+s.id+': '+s.score+'/10 - '+(s.strength||'').slice(0,50));});lines.push('');lines.push(result.summary||'');await sendNtfy(lines.join('\n'),'DWB Hook Scores Avg '+result.avgScore+'/10 '+(result.readyToRender?'READY':'NEEDS WORK'));}catch(e){console.log('Scorer error (non-fatal): '+e.message);}})();
+          SCOREREOF
 
       # =========================================================================
-      # STEP: DOWNLOAD BACKGROUND VIDEOS
-      # 6 CLIPS per video, aligned with overlay content.
+      # DOWNLOAD BACKGROUND VIDEOS (6 clips per video)
       # =========================================================================
-      - name: Download background videos (6 clips -- Smart Multi-Source)
+      - name: Download background videos (6 clips per day)
         env:
           PIXABAY_API_KEY:     ${{ secrets.PIXABAY_API_KEY }}
           PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
           UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
         run: |
           mkdir -p public/videos
-          node << 'EOF'
-          const https = require('https');
-          const http  = require('http');
-          const fs    = require('fs');
-          const path  = require('path');
+          node << 'VIDEOEOF'
+          const https=require('https'),http=require('http'),fs=require('fs'),path=require('path');
+          const PXB=process.env.PIXABAY_API_KEY||'', PXL=process.env.PEXELS_API_KEY||'', UNS=process.env.UNSPLASH_ACCESS_KEY||'';
+          let info={dayAssets:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
+          const DA=info.dayAssets||{};if(!Object.keys(DA).length){console.log('No dayAssets -- skipping');process.exit(0);}
+          function score(c){let s=0;const w=c.width||0,h=c.height||0;if(w>=1080&&h>=1920)s+=50;else if(h>=w)s+=30;else if(w>=1920)s+=20;else s+=5;if(h>w)s+=20;const d=c.duration||0;if(d>=8&&d<=15)s+=15;else if(d>=5)s+=8;else if(d>0)s+=3;const sz=c.fileSize||0;if(sz>5000000)s+=15;else if(sz>1000000)s+=8;return s;}
+          function fetchJSON(url,headers){return new Promise(function(resolve,reject){const lib=url.startsWith('https')?https:http;lib.get(url,{headers:Object.assign({'User-Agent':'DWB/1.0'},headers||{})},function(res){if(res.statusCode===301||res.statusCode===302)return fetchJSON(res.headers.location,headers).then(resolve).catch(reject);let d='';res.on('data',function(c){d+=c;});res.on('end',function(){try{resolve(JSON.parse(d));}catch(e){reject(new Error('JSON parse failed'));}});}).on('error',reject);});}
+          function dlFile(url,dest){return new Promise(function(resolve,reject){const f=fs.createWriteStream(dest);const get=function(u){const lib=u.startsWith('https')?https:http;lib.get(u,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302){f.close();return get(res.headers.location);}if(res.statusCode!==200){f.close();reject(new Error('HTTP '+res.statusCode));return;}res.pipe(f);f.on('finish',function(){f.close();resolve();});}).on('error',function(e){f.close();reject(e);});};get(url);});}
+          const sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
+          async function fetchPixabay(q){if(!PXB)return[];try{let data=await fetchJSON('https://pixabay.com/api/videos/?key='+PXB+'&q='+encodeURIComponent(q)+'&orientation=vertical&per_page=15&video_type=film&min_height=720');let hits=data.hits||[];if(!hits.length){data=await fetchJSON('https://pixabay.com/api/videos/?key='+PXB+'&q='+encodeURIComponent(q)+'&per_page=15&video_type=film');hits=data.hits||[];}return hits.map(function(hit){const v=hit.videos||{},best=v.large||v.medium||v.small||{};if(!best.url)return null;return{source:'Pixabay',url:best.url,width:best.width||0,height:best.height||0,duration:hit.duration||0,fileSize:best.size||0,score:0};}).filter(Boolean);}catch(e){console.log('Pixabay fail: '+e.message);return[];}}
+          async function fetchPexels(q){if(!PXL)return[];try{const data=await fetchJSON('https://api.pexels.com/videos/search?query='+encodeURIComponent(q)+'&per_page=15&orientation=portrait&min_width=720',{'Authorization':PXL});const cands=[];for(const vid of (data.videos||[])){const files=(vid.video_files||[]).filter(function(f){return f.file_type==='video/mp4';}).sort(function(a,b){return(b.width*b.height)-(a.width*a.height);});if(!files.length)continue;const best=files[0];cands.push({source:'Pexels',url:best.link,width:best.width||vid.width||0,height:best.height||vid.height||0,duration:vid.duration||0,fileSize:0,score:0});}return cands;}catch(e){console.log('Pexels fail: '+e.message);return[];}}
+          async function makeKenBurns(q,dest){const tmp=dest+'_tmp.jpg';try{const cq=encodeURIComponent(q.replace(/vertical/gi,'').trim());let imgUrl='https://source.unsplash.com/1080x1920/?'+cq;if(UNS){try{const ud=await fetchJSON('https://api.unsplash.com/search/photos?query='+cq+'&per_page=3&orientation=portrait&client_id='+UNS);const r=(ud.results||[])[0];if(r)imgUrl=r.urls.regular||r.urls.small;}catch(e){}}await dlFile(imgUrl,tmp);if(!fs.existsSync(tmp)||fs.statSync(tmp).size<10000)throw new Error('img too small');const{execSync}=require('child_process');execSync('ffmpeg -loop 1 -i "'+tmp+'" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -t 10 -c:v libx264 -pix_fmt yuv420p -y "'+dest+'" 2>/dev/null',{stdio:'pipe'});if(fs.existsSync(tmp))fs.unlinkSync(tmp);const vs=fs.existsSync(dest)?fs.statSync(dest).size:0;if(vs<10000)throw new Error('kb too small');console.log('KenBurns OK: '+path.basename(dest));return true;}catch(e){console.log('KenBurns fail: '+e.message);if(fs.existsSync(tmp))fs.unlinkSync(tmp);return false;}}
+          (async function(){let dl=0,skip=0,fail=0,kb=0;for(const day of Object.keys(DA)){const assets=DA[day];console.log('\n=== '+day+' ('+assets.length+' clips expected) ===');for(const item of assets){const dest='public/videos/'+item.id+'.mp4';if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){console.log('SKIP: '+item.id);skip++;continue;}if(fs.existsSync(dest))fs.unlinkSync(dest);console.log('Fetching: '+item.id+' | "'+item.q+'"');const[pc,xc]=await Promise.all([fetchPixabay(item.q),fetchPexels(item.q)]);const all=pc.concat(xc);all.forEach(function(c){c.score=score(c);});all.sort(function(a,b){return b.score-a.score;});let ok=false;for(const clip of all){try{await dlFile(clip.url,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('OK: '+item.id+' from '+clip.source+' score='+clip.score);dl++;ok=true;break;}if(fs.existsSync(dest))fs.unlinkSync(dest);}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);}}if(!ok){ok=await makeKenBurns(item.q,dest);if(ok)kb++;}if(!ok){try{const{execSync}=require('child_process');execSync('ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "'+dest+'" -y -loglevel error',{stdio:'pipe'});if(fs.existsSync(dest)&&fs.statSync(dest).size>1000){console.log('Placeholder: '+item.id);dl++;}else{console.log('FAIL: '+item.id);fail++;}}catch(fe){console.log('FAIL: '+item.id);fail++;}}await sleep(300);}};console.log('\n--- Video Summary ---\nDownloaded: '+dl+' | Cached: '+skip+' | KenBurns: '+kb+' | Failed: '+fail);})();
+          VIDEOEOF
 
-          const PIXABAY_KEY  = process.env.PIXABAY_API_KEY     || '';
-          const PEXELS_KEY   = process.env.PEXELS_API_KEY      || '';
-          const UNSPLASH_KEY = process.env.UNSPLASH_ACCESS_KEY || '';
-
-          let info = { dayAssets: {} };
-          try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
-          const DAY_ASSETS = info.dayAssets || {};
-
-          if (Object.keys(DAY_ASSETS).length === 0) {
-            console.log('No day assets defined -- skipping');
-            process.exit(0);
-          }
-
-          function scoreClip(clip) {
-            let score = 0;
-            const w = clip.width  || 0;
-            const h = clip.height || 0;
-            if (w >= 1080 && h >= 1920) score += 50;
-            else if (h >= w)            score += 30;
-            else if (w >= 1920)         score += 20;
-            else                        score += 5;
-            if (h > w) score += 20;
-            const dur = clip.duration || 0;
-            if (dur >= 8 && dur <= 15) score += 15;
-            else if (dur >= 5)         score += 8;
-            else if (dur > 0)          score += 3;
-            const size = clip.fileSize || 0;
-            if (size > 5000000) score += 15;
-            else if (size > 1000000) score += 8;
-            return score;
-          }
-
-          function fetchJSON(url, headers) {
-            return new Promise(function(resolve, reject) {
-              const lib = url.startsWith('https') ? https : http;
-              lib.get(url, { headers: Object.assign({ 'User-Agent': 'DWB-Pipeline/1.0' }, headers || {}) }, function(res) {
-                if (res.statusCode === 301 || res.statusCode === 302)
-                  return fetchJSON(res.headers.location, headers).then(resolve).catch(reject);
-                let data = '';
-                res.on('data', function(d) { data += d; });
-                res.on('end', function() {
-                  try { resolve(JSON.parse(data)); }
-                  catch(e) { reject(new Error('JSON parse failed')); }
-                });
-              }).on('error', reject);
-            });
-          }
-
-          function downloadFile(url, dest) {
-            return new Promise(function(resolve, reject) {
-              const file = fs.createWriteStream(dest);
-              const get  = function(u) {
-                const lib = u.startsWith('https') ? https : http;
-                lib.get(u, { headers: { 'User-Agent': 'DWB-Pipeline/1.0' } }, function(res) {
-                  if (res.statusCode === 301 || res.statusCode === 302) { file.close(); return get(res.headers.location); }
-                  if (res.statusCode !== 200) { file.close(); reject(new Error('HTTP ' + res.statusCode)); return; }
-                  res.pipe(file);
-                  file.on('finish', function() { file.close(); resolve(); });
-                }).on('error', function(e) { file.close(); reject(e); });
-              };
-              get(url);
-            });
-          }
-
-          const sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
-
-          async function fetchPixabay(query) {
-            if (!PIXABAY_KEY) return [];
-            try {
-              const urlV = 'https://pixabay.com/api/videos/?key=' + PIXABAY_KEY +
-                '&q=' + encodeURIComponent(query) +
-                '&orientation=vertical&per_page=15&video_type=film&min_height=720';
-              let data = await fetchJSON(urlV);
-              let hits = data.hits || [];
-              if (hits.length === 0) {
-                const urlA = 'https://pixabay.com/api/videos/?key=' + PIXABAY_KEY +
-                  '&q=' + encodeURIComponent(query) + '&per_page=15&video_type=film';
-                data = await fetchJSON(urlA);
-                hits = data.hits || [];
-              }
-              return hits.map(function(hit) {
-                const v    = hit.videos || {};
-                const best = v.large || v.medium || v.small || {};
-                if (!best.url) return null;
-                return { source: 'Pixabay', url: best.url, width: best.width || 0, height: best.height || 0, duration: hit.duration || 0, fileSize: best.size || 0, score: 0 };
-              }).filter(Boolean);
-            } catch(e) { console.log('Pixabay FAILED: ' + e.message); return []; }
-          }
-
-          async function fetchPexels(query) {
-            if (!PEXELS_KEY) return [];
-            try {
-              const url  = 'https://api.pexels.com/videos/search?query=' + encodeURIComponent(query) + '&per_page=15&orientation=portrait&min_width=720';
-              const data = await fetchJSON(url, { 'Authorization': PEXELS_KEY });
-              const candidates = [];
-              for (const vid of (data.videos || [])) {
-                const files = (vid.video_files || []).filter(function(f) { return f.file_type === 'video/mp4'; }).sort(function(a, b) { return (b.width * b.height) - (a.width * a.height); });
-                if (files.length === 0) continue;
-                const best = files[0];
-                candidates.push({ source: 'Pexels', url: best.link, width: best.width || vid.width || 0, height: best.height || vid.height || 0, duration: vid.duration || 0, fileSize: 0, score: 0 });
-              }
-              return candidates;
-            } catch(e) { console.log('Pexels FAILED: ' + e.message); return []; }
-          }
-
-          async function makeKenBurns(query, dest) {
-            const tmpImg = dest + '_tmp.jpg';
-            try {
-              const cleanQ = encodeURIComponent(query.replace(/vertical/gi, '').trim());
-              let imgUrl = 'https://source.unsplash.com/1080x1920/?' + cleanQ;
-              if (UNSPLASH_KEY) {
-                const uUrl  = 'https://api.unsplash.com/search/photos?query=' + cleanQ + '&per_page=3&orientation=portrait&client_id=' + UNSPLASH_KEY;
-                const uData = await fetchJSON(uUrl);
-                const res   = (uData.results || [])[0];
-                if (res) imgUrl = res.urls.regular || res.urls.small;
-              }
-              await downloadFile(imgUrl, tmpImg);
-              const imgSize = fs.existsSync(tmpImg) ? fs.statSync(tmpImg).size : 0;
-              if (imgSize < 10000) throw new Error('Image too small');
-              const { execSync } = require('child_process');
-              execSync(
-                'ffmpeg -loop 1 -i "' + tmpImg + '" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -t 10 -c:v libx264 -pix_fmt yuv420p -y "' + dest + '" 2>/dev/null',
-                { stdio: 'pipe' }
-              );
-              if (fs.existsSync(tmpImg)) fs.unlinkSync(tmpImg);
-              const vidSize = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-              if (vidSize < 10000) throw new Error('Ken Burns output too small');
-              console.log('Ken Burns OK: ' + path.basename(dest));
-              return true;
-            } catch(e) {
-              console.log('Ken Burns FAILED: ' + e.message);
-              if (fs.existsSync(tmpImg)) fs.unlinkSync(tmpImg);
-              return false;
-            }
-          }
-
-          (async function() {
-            let downloaded = 0, skipped = 0, failed = 0, kenBurns = 0;
-
-            for (const day of Object.keys(DAY_ASSETS)) {
-              const assets = DAY_ASSETS[day];
-              // Expect 6 clips -- log if less
-              if (assets.length < 6) {
-                console.log('WARNING: ' + day + ' has only ' + assets.length + ' clip queries (expected 6)');
-              }
-
-              for (const item of assets) {
-                const dest = 'public/videos/' + item.id + '.mp4';
-
-                if (fs.existsSync(dest) && fs.statSync(dest).size > 50000) {
-                  console.log('SKIP (cached): ' + item.id);
-                  skipped++;
-                  continue;
-                }
-                if (fs.existsSync(dest)) fs.unlinkSync(dest);
-
-                console.log('\nFetching: ' + item.id + ' | "' + item.q + '"');
-
-                const [pixClips, pexClips] = await Promise.all([
-                  fetchPixabay(item.q),
-                  fetchPexels(item.q),
-                ]);
-
-                const allClips = pixClips.concat(pexClips);
-                allClips.forEach(function(c) { c.score = scoreClip(c); });
-                allClips.sort(function(a, b) { return b.score - a.score; });
-
-                console.log('Candidates: ' + allClips.length + ' (Pixabay:' + pixClips.length + ' Pexels:' + pexClips.length + ')');
-
-                let success = false;
-                for (const clip of allClips) {
-                  try {
-                    await downloadFile(clip.url, dest);
-                    const size = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-                    if (size > 50000) {
-                      console.log('OK: ' + item.id + ' from ' + clip.source + ' score=' + clip.score);
-                      success = true;
-                      downloaded++;
-                      break;
-                    }
-                    if (fs.existsSync(dest)) fs.unlinkSync(dest);
-                  } catch(e) {
-                    if (fs.existsSync(dest)) fs.unlinkSync(dest);
-                  }
-                }
-
-                if (!success) {
-                  const kb = await makeKenBurns(item.q, dest);
-                  if (kb) { kenBurns++; success = true; }
-                }
-
-                if (!success) {
-                  // Generate solid black placeholder so render never crashes
-                  try {
-                    const { execSync } = require('child_process');
-                    execSync(
-                      'ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "' + dest + '" -y -loglevel error',
-                      { stdio: 'pipe' }
-                    );
-                    const phSize = fs.existsSync(dest) ? fs.statSync(dest).size : 0;
-                    if (phSize > 1000) {
-                      console.log('Placeholder created: ' + item.id);
-                      downloaded++;
-                    } else {
-                      console.log('FINAL FAIL: ' + item.id);
-                      failed++;
-                    }
-                  } catch(fe) {
-                    console.log('FINAL FAIL (placeholder error): ' + item.id);
-                    failed++;
-                  }
-                }
-
-                await sleep(300);
-              }
-            }
-
-            console.log('\n--- Video Download Summary ---');
-            console.log('Downloaded: ' + downloaded + ' | Cached: ' + skipped + ' | KenBurns: ' + kenBurns + ' | Failed: ' + failed);
-          })();
-          EOF
-
-      - name: Verify clips and create placeholders for missing files
+      - name: Verify clips and create placeholders for any missing
         run: |
-          find public/videos -name "*.mp4" -size +5k 2>/dev/null | wc -l | xargs echo "Valid clips found:"
-          node << 'JSEOF'
-          const fs = require('fs');
-          const { execSync } = require('child_process');
-          let info = {};
-          try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {
-            console.log('No week_info.json - skipping'); process.exit(0);
-          }
-          const allAssets = Object.values(info.dayAssets || {}).flat();
-          let created = 0, ok = 0;
-          for (const item of allAssets) {
-            const dest   = 'public/videos/' + item.id + '.mp4';
-            const exists = fs.existsSync(dest) && fs.statSync(dest).size > 5000;
-            if (!exists) {
-              console.log('Creating placeholder: ' + dest);
-              try {
-                execSync(
-                  'ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30' +
-                  ' -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an' +
-                  ' "' + dest + '" -y -loglevel error'
-                );
-                created++;
-              } catch(e) { console.log('FAILED: ' + dest); }
-            } else { ok++; }
-          }
-          console.log('Clips OK: ' + ok + ' | Placeholders created: ' + created);
-          JSEOF
+          node << 'VERIFYEOF'
+          const fs=require('fs'),{execSync}=require('child_process');
+          let info={};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){process.exit(0);}
+          const allAssets=Object.values(info.dayAssets||{}).flat();
+          let created=0,ok=0;
+          for(const item of allAssets){const dest='public/videos/'+item.id+'.mp4';if(fs.existsSync(dest)&&fs.statSync(dest).size>5000){ok++;continue;}console.log('Creating placeholder: '+dest);try{execSync('ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "'+dest+'" -y -loglevel error');created++;}catch(e){console.log('FAILED: '+dest);}}
+          console.log('Clips OK: '+ok+' | Placeholders: '+created);
+          VERIFYEOF
+          echo "=== Clip inventory ==="
+          find public/videos -name "*.mp4" -size +1k 2>/dev/null | sort | head -20
+          find public/videos -name "*.mp4" -size +1k 2>/dev/null | wc -l | xargs echo "Total valid clips:"
 
       # =========================================================================
-      # STEP: RENDER
+      # RENDER
+      # KEY FIX: Removed --public-dir flag entirely.
+      # Remotion auto-detects public/ from project root.
+      # With --public-dir "$(pwd)/public", Remotion served files at /videos/clip.mp4
+      # but staticFile() returned /public/videos/clip.mp4 causing 404.
+      # Without --public-dir, Remotion uses repo root, matching staticFile() output.
       # =========================================================================
       - name: Render all videos
         run: |
           BROWSER="./node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell"
-
           DAYS_INPUT="${{ github.event.inputs.days_override }}"
           if [ -n "$DAYS_INPUT" ]; then
             RENDER_DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
           else
             RENDER_DAYS="${{ env.ACTIVE_DAYS }}"
           fi
-
-          echo "Rendering days: $RENDER_DAYS"
-
-          RENDER_FAILED=0
-          RENDER_PASSED=0
-          START_TIME=$(date +%s)
-
+          echo "=== Rendering days: $RENDER_DAYS ==="
+          FAILED=0; PASSED=0; START=$(date +%s)
           for DAY in $RENDER_DAYS; do
-            DAY_START=$(date +%s)
+            DS=$(date +%s)
             echo "--- Rendering ${DAY} ---"
-
             npx remotion render src/index.jsx ${DAY} out/${DAY}_final.mp4 \
               --browser-executable="$BROWSER" \
               --codec=h264 \
               --crf=18 \
               --jpeg-quality=85 \
               --scale=1 \
-              --concurrency=2 \
-              --public-dir "$(pwd)/public"
-
-            EXIT_CODE=$?
-            DAY_END=$(date +%s)
-            DAY_SECS=$((DAY_END - DAY_START))
-
-            if [ $EXIT_CODE -eq 0 ] && [ -f "out/${DAY}_final.mp4" ]; then
-              SIZE=$(du -sh "out/${DAY}_final.mp4" | cut -f1)
-              echo "DONE ${DAY} in ${DAY_SECS}s (${SIZE})"
-              RENDER_PASSED=$((RENDER_PASSED + 1))
+              --concurrency=2
+            CODE=$?
+            SECS=$(($(date +%s)-DS))
+            if [ $CODE -eq 0 ] && [ -f "out/${DAY}_final.mp4" ]; then
+              SZ=$(du -sh "out/${DAY}_final.mp4" | cut -f1)
+              echo "DONE ${DAY} in ${SECS}s (${SZ})"
+              PASSED=$((PASSED+1))
             else
-              echo "FAILED ${DAY} after ${DAY_SECS}s"
-              RENDER_FAILED=$((RENDER_FAILED + 1))
+              echo "FAILED ${DAY} after ${SECS}s (exit code: $CODE)"
+              FAILED=$((FAILED+1))
             fi
           done
+          echo "--- Total: ${PASSED} passed, ${FAILED} failed in $(($(date +%s)-START))s ---"
+          if [ $FAILED -gt 0 ]; then exit 1; fi
 
-          END_TIME=$(date +%s)
-          TOTAL_SECS=$((END_TIME - START_TIME))
-          echo "--- Render complete in ${TOTAL_SECS}s | Passed: ${RENDER_PASSED} | Failed: ${RENDER_FAILED} ---"
-
-          if [ $RENDER_FAILED -gt 0 ]; then exit 1; fi
-
-      - name: Audio normalization (ffmpeg loudnorm -- YouTube -14 LUFS)
+      - name: Audio normalization (-14 LUFS)
         if: success()
         run: |
           DAYS_INPUT="${{ github.event.inputs.days_override }}"
-          if [ -n "$DAYS_INPUT" ]; then
-            NORM_DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
-          else
-            NORM_DAYS="${{ env.ACTIVE_DAYS }}"
-          fi
-          for DAY in $NORM_DAYS; do
+          DAYS="${DAYS_INPUT:-${{ env.ACTIVE_DAYS }}}"
+          [ -n "$DAYS_INPUT" ] && DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
+          for DAY in $DAYS; do
             FILE="out/${DAY}_final.mp4"
-            NORM="out/${DAY}_norm.mp4"
             if [ -f "$FILE" ]; then
-              ffmpeg -i "$FILE" -af loudnorm=I=-14:TP=-1.5:LRA=11 \
-                -c:v copy -c:a aac -b:a 192k \
-                "$NORM" -y -loglevel error \
-                && mv "$NORM" "$FILE" \
-                && echo "Normalized: ${DAY}" \
-                || echo "Normalization FAILED (non-fatal): ${DAY}"
+              ffmpeg -i "$FILE" -af loudnorm=I=-14:TP=-1.5:LRA=11 -c:v copy -c:a aac -b:a 192k "out/${DAY}_norm.mp4" -y -loglevel error \
+                && mv "out/${DAY}_norm.mp4" "$FILE" && echo "Normalized: ${DAY}" || echo "Normalization skipped: ${DAY}"
             fi
           done
 
@@ -1246,115 +563,48 @@ jobs:
         if: success()
         run: |
           DAYS_INPUT="${{ github.event.inputs.days_override }}"
-          if [ -n "$DAYS_INPUT" ]; then
-            THUMB_DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
-          else
-            THUMB_DAYS="${{ env.ACTIVE_DAYS }}"
-          fi
-          for DAY in $THUMB_DAYS; do
-            FILE="out/${DAY}_final.mp4"
-            if [ -f "$FILE" ]; then
-              ffmpeg -ss 00:00:01 -i "$FILE" -frames:v 1 -q:v 2 \
-                "out/thumbs/${DAY}_thumb.jpg" -y -loglevel error \
-                && echo "Thumb OK: ${DAY}" \
-                || echo "Thumb FAILED: ${DAY}"
-            fi
+          DAYS="${DAYS_INPUT:-${{ env.ACTIVE_DAYS }}}"
+          [ -n "$DAYS_INPUT" ] && DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
+          for DAY in $DAYS; do
+            [ -f "out/${DAY}_final.mp4" ] && \
+              ffmpeg -ss 00:00:01 -i "out/${DAY}_final.mp4" -frames:v 1 -q:v 2 "out/thumbs/${DAY}_thumb.jpg" -y -loglevel error \
+              && echo "Thumb OK: ${DAY}" || echo "Thumb failed: ${DAY}"
           done
 
       - name: Generate GIF teasers
         if: success()
         run: |
           DAYS_INPUT="${{ github.event.inputs.days_override }}"
-          if [ -n "$DAYS_INPUT" ]; then
-            GIF_DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
-          else
-            GIF_DAYS="${{ env.ACTIVE_DAYS }}"
-          fi
-          for DAY in $GIF_DAYS; do
+          DAYS="${DAYS_INPUT:-${{ env.ACTIVE_DAYS }}}"
+          [ -n "$DAYS_INPUT" ] && DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
+          for DAY in $DAYS; do
             FILE="out/${DAY}_final.mp4"
             if [ -f "$FILE" ]; then
-              ffmpeg -t 3 -i "$FILE" \
-                -vf "fps=12,scale=270:-1:flags=lanczos,palettegen" \
-                -y "out/gifs/${DAY}_palette.png" -loglevel error && \
-              ffmpeg -t 3 -i "$FILE" -i "out/gifs/${DAY}_palette.png" \
-                -lavfi "fps=12,scale=270:-1:flags=lanczos[x];[x][1:v]paletteuse" \
-                -y "out/gifs/${DAY}_hook.gif" -loglevel error && \
-              echo "GIF OK: ${DAY}" || echo "GIF FAILED: ${DAY}"
-              rm -f "out/gifs/${DAY}_palette.png"
+              ffmpeg -t 3 -i "$FILE" -vf "fps=12,scale=270:-1:flags=lanczos,palettegen" -y "out/gifs/${DAY}_pal.png" -loglevel error && \
+              ffmpeg -t 3 -i "$FILE" -i "out/gifs/${DAY}_pal.png" -lavfi "fps=12,scale=270:-1:flags=lanczos[x];[x][1:v]paletteuse" -y "out/gifs/${DAY}_hook.gif" -loglevel error \
+              && echo "GIF OK: ${DAY}" || echo "GIF failed: ${DAY}"
+              rm -f "out/gifs/${DAY}_pal.png"
             fi
           done
 
       - name: Generate SRT subtitle files
         if: success()
         run: |
-          node << 'EOF'
-          const fs   = require('fs');
-          const path = require('path');
-
-          let entries = [];
-
-          // Try generated video first
-          if (fs.existsSync('src/current-video.js')) {
-            try {
-              const source = fs.readFileSync('src/current-video.js', 'utf8');
-              const match  = source.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);
-              if (match) entries = [JSON.parse(match[1])];
-            } catch(e) {}
-          }
-
-          if (entries.length === 0) {
-            const srcDir       = path.join(process.cwd(), 'src');
-            const allFiles     = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
-            const contentFiles = allFiles.filter(function(f) { return f.match(/^week\d+-content\.js$/); });
-            const weekNums     = contentFiles.map(function(f) { return parseInt(f.match(/week(\d+)/)[1]); }).sort(function(a,b) { return b - a; });
-            if (weekNums.length > 0) {
-              const activeFile = path.join(srcDir, 'week' + weekNums[0] + '-content.js');
-              const source     = fs.readFileSync(activeFile, 'utf8');
-              const dm  = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
-              const nm  = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-              const arr = dm ? dm[1] : (nm ? nm[1] : null);
-              try { if (arr) entries = eval(arr); } catch(e) {}
-            }
-          }
-
-          function framesToSRT(frame, fps) {
-            fps = fps || 30;
-            const totalMs = Math.round((frame / fps) * 1000);
-            const h = Math.floor(totalMs / 3600000);
-            const m = Math.floor((totalMs % 3600000) / 60000);
-            const s = Math.floor((totalMs % 60000) / 1000);
-            const ms = totalMs % 1000;
-            return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0') + ',' + String(ms).padStart(3,'0');
-          }
-
-          let generated = 0;
-          for (const entry of entries) {
-            if (!entry.overlays || !entry.id) continue;
-            const srtLines = [];
-            let index = 1;
-            for (const o of entry.overlays) {
-              if (!o.text || o.startFrame === undefined || o.endFrame === undefined) continue;
-              srtLines.push(String(index));
-              srtLines.push(framesToSRT(o.startFrame) + ' --> ' + framesToSRT(o.endFrame));
-              srtLines.push(o.text.replace(/\n/g, ' '));
-              srtLines.push('');
-              index++;
-            }
-            if (srtLines.length > 0) {
-              fs.mkdirSync('out/srt', { recursive: true });
-              fs.writeFileSync('out/srt/' + entry.id + '.srt', srtLines.join('\n'));
-              generated++;
-            }
-          }
-          console.log('Generated ' + generated + ' SRT files');
-          EOF
+          node << 'SRTEOF'
+          const fs=require('fs'),path=require('path');
+          let entries=[];
+          if(fs.existsSync('src/current-video.js')){try{const src=fs.readFileSync('src/current-video.js','utf8');const m=src.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);if(m)entries=[JSON.parse(m[1])];}catch(e){}}
+          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const src=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=src.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);const nm=src.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr);}catch(e){}}}
+          function toSRT(f){const ms=Math.round((f/30)*1000);const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000),ms2=ms%1000;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+','+String(ms2).padStart(3,'0');}
+          let gen=0;for(const e of entries){if(!e.overlays||!e.id)continue;const lines=[];let idx=1;for(const o of e.overlays){if(!o.text||o.startFrame===undefined||o.endFrame===undefined)continue;lines.push(String(idx));lines.push(toSRT(o.startFrame)+' --> '+toSRT(o.endFrame));lines.push(o.text.replace(/\n/g,' '));lines.push('');idx++;}if(lines.length){fs.mkdirSync('out/srt',{recursive:true});fs.writeFileSync('out/srt/'+e.id+'.srt',lines.join('\n'));gen++;}}
+          console.log('Generated '+gen+' SRT files');
+          SRTEOF
 
       # =========================================================================
-      # STEP: YOUTUBE UPLOAD
-      # FIX: Detect invalid_grant (expired token) specifically.
-      # Send ntfy with regeneration instructions instead of silently failing.
+      # YOUTUBE UPLOAD
+      # FIX: invalid_grant detected specifically, sends ntfy with fix steps
       # =========================================================================
-      - name: Upload to YouTube (scheduled -- 1 video per day at 9AM UTC)
+      - name: Upload to YouTube (scheduled publishing)
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -1362,275 +612,48 @@ jobs:
           NTFY_TOPIC:            ${{ secrets.NTFY_TOPIC }}
           DAYS_OVERRIDE:         ${{ github.event.inputs.days_override }}
         run: |
-          node << 'EOF'
-          const fs    = require('fs');
-          const https = require('https');
-          const path  = require('path');
+          node << 'YTEOF'
+          const fs=require('fs'),https=require('https');
+          const CID=process.env.YOUTUBE_CLIENT_ID||'',CS=process.env.YOUTUBE_CLIENT_SECRET||'',RT=process.env.YOUTUBE_REFRESH_TOKEN||'',NTFY=process.env.NTFY_TOPIC||'';
+          function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
+          async function sendNtfy(msg,title,priority,tags){if(!NTFY)return;const data=Buffer.from(msg);return new Promise(function(resolve){const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle(title),'Tags':tags||'warning','Priority':priority||'high'}},function(res){resolve();});req.on('error',function(){resolve();});req.write(data);req.end();});}
+          if(!CID||!CS||!RT){console.log('YouTube secrets not set -- skipping');fs.writeFileSync('out/.upload_results.json','[]');process.exit(0);}
+          let info={week:'unknown',days:[],dayMeta:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
+          const overrideDays=process.env.DAYS_OVERRIDE?process.env.DAYS_OVERRIDE.split(',').map(function(d){return d.trim();}).filter(Boolean):info.days;
+          const days=overrideDays.length>0?overrideDays:info.days, dayMeta=info.dayMeta||{};
+          function httpsReq(opts,body){return new Promise(function(resolve,reject){const req=https.request(opts,function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){resolve({status:res.statusCode,body:d,headers:res.headers});});});req.on('error',reject);if(body)req.write(body);req.end();});}
+          async function getToken(){const body='client_id='+encodeURIComponent(CID)+'&client_secret='+encodeURIComponent(CS)+'&refresh_token='+encodeURIComponent(RT)+'&grant_type=refresh_token';const res=await httpsReq({hostname:'oauth2.googleapis.com',path:'/token',method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','Content-Length':Buffer.byteLength(body)}},body);if(res.status!==200){let ed={};try{ed=JSON.parse(res.body);}catch(e){}if(ed.error==='invalid_grant'){await sendNtfy('YouTube Token EXPIRED.\n\nFIX:\n1. Go to developers.google.com/oauthplayground\n2. Select YouTube Data API v3\n3. Authorize and get new refresh token\n4. Update YOUTUBE_REFRESH_TOKEN in GitHub Secrets\n5. Re-run\n\nVideos saved as artifacts -- not lost.','ACTION REQUIRED YouTube Token Expired','urgent','x,warning');console.log('ERROR: invalid_grant -- see ntfy');fs.writeFileSync('out/.upload_results.json','[]');process.exit(1);}throw new Error('Token failed: '+res.body.slice(0,200));}return JSON.parse(res.body).access_token;}
+          async function uploadVideo(token,filePath,meta,publishAt){const fileSize=fs.statSync(filePath).size;const initBody=JSON.stringify({snippet:{title:meta.title||'Daily Wealth Building',description:meta.description||'',tags:meta.tags||['personalfinance','wealthbuilding'],categoryId:'27'},status:{privacyStatus:'private',publishAt:publishAt,selfDeclaredMadeForKids:false}});const initRes=await httpsReq({hostname:'www.googleapis.com',path:'/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json','Content-Length':Buffer.byteLength(initBody),'X-Upload-Content-Type':'video/mp4','X-Upload-Content-Length':fileSize}},initBody);if(initRes.status!==200)throw new Error('Init HTTP '+initRes.status);const uploadUrl=initRes.headers.location;if(!uploadUrl)throw new Error('No upload URL');const CHUNK=8*1024*1024,fd=fs.openSync(filePath,'r');let uploaded=0,videoId=null;while(uploaded<fileSize){const cs=Math.min(CHUNK,fileSize-uploaded),buf=Buffer.alloc(cs);fs.readSync(fd,buf,0,cs,uploaded);const uo=new URL(uploadUrl);const cr=await httpsReq({hostname:uo.hostname,path:uo.pathname+uo.search,method:'PUT',headers:{'Authorization':'Bearer '+token,'Content-Length':cs,'Content-Range':'bytes '+uploaded+'-'+(uploaded+cs-1)+'/'+fileSize}},buf);uploaded+=cs;if(cr.status===200||cr.status===201){videoId=JSON.parse(cr.body).id;break;}if(cr.status!==308)throw new Error('Chunk HTTP '+cr.status);console.log('Uploading... '+Math.round((uploaded/fileSize)*100)+'%');}fs.closeSync(fd);return videoId;}
+          function getPublishAt(idx){const now=new Date();const base=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+1,16,0,0));return new Date(base.getTime()+idx*86400000).toISOString();}
+          (async function(){let uploaded=0,failed=0;const results=[],scheduled=[];let token;try{token=await getToken();console.log('Token OK');}catch(e){console.log('ERROR: '+e.message);fs.writeFileSync('out/.upload_results.json','[]');process.exit(1);}for(let i=0;i<days.length;i++){const day=days[i],filePath='out/'+day+'_final.mp4';if(!fs.existsSync(filePath)){console.log('SKIP: '+day+' not found');results.push({day:day,status:'failed',error:'not found'});failed++;continue;}const meta=dayMeta[day]||{},publishAt=getPublishAt(i);console.log('\nUploading: '+day+' -> '+publishAt);try{const vid=await uploadVideo(token,filePath,{title:meta.youtubeTitle||day+' | Daily Wealth Building',description:meta.youtubeDescription||'',tags:['personalfinance','wealthbuilding','financialfreedom','moneytips']},publishAt);console.log('UPLOADED: '+day+' -> https://youtu.be/'+vid);results.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,status:'ok',publishAt:publishAt});scheduled.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,publishAt:publishAt,notifScheduled:false,pinnedComment:meta.pinnedComment||''});uploaded++;}catch(e){console.log('FAIL: '+day+': '+e.message);results.push({day:day,status:'failed',error:e.message});failed++;}}fs.writeFileSync('out/.upload_results.json',JSON.stringify(results,null,2));let existing=[];try{existing=JSON.parse(fs.readFileSync('scheduled-videos.json','utf8'));}catch(e){}fs.writeFileSync('scheduled-videos.json',JSON.stringify(existing.filter(function(v){return days.indexOf(v.day)===-1;}).concat(scheduled),null,2));console.log('\nUploaded: '+uploaded+' | Failed: '+failed);})();
+          YTEOF
 
-          const CLIENT_ID     = process.env.YOUTUBE_CLIENT_ID     || '';
-          const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || '';
-          const REFRESH_TOKEN = process.env.YOUTUBE_REFRESH_TOKEN || '';
-          const NTFY          = process.env.NTFY_TOPIC            || '';
-
-          function safeTitle(str) {
-            return (str || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
-          }
-
-          async function sendNtfy(message, title, priority, tags) {
-            if (!NTFY) return;
-            const data = Buffer.from(message);
-            return new Promise(function(resolve) {
-              const req = https.request({
-                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
-                headers: {
-                  'Content-Type':   'text/plain',
-                  'Content-Length': data.length,
-                  'Title':          safeTitle(title),
-                  'Tags':           tags || 'warning',
-                  'Priority':       priority || 'high',
-                },
-              }, function(res) { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
-              req.on('error', function() { resolve(); });
-              req.write(data);
-              req.end();
-            });
-          }
-
-          if (!CLIENT_ID || !CLIENT_SECRET || !REFRESH_TOKEN) {
-            console.log('YouTube secrets not configured -- skipping upload');
-            fs.writeFileSync('out/.upload_results.json', '[]');
-            process.exit(0);
-          }
-
-          let info = { week: 'unknown', days: [], dayMeta: {} };
-          try { info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8')); } catch(e) {}
-
-          const overrideDays = process.env.DAYS_OVERRIDE
-            ? process.env.DAYS_OVERRIDE.split(',').map(function(d) { return d.trim(); }).filter(Boolean)
-            : info.days;
-
-          const days    = overrideDays.length > 0 ? overrideDays : info.days;
-          const dayMeta = info.dayMeta || {};
-
-          function httpsRequest(options, body) {
-            return new Promise(function(resolve, reject) {
-              const req = https.request(options, function(res) {
-                let data = '';
-                res.on('data', function(d) { data += d; });
-                res.on('end', function() { resolve({ status: res.statusCode, body: data, headers: res.headers }); });
-              });
-              req.on('error', reject);
-              if (body) req.write(body);
-              req.end();
-            });
-          }
-
-          async function getAccessToken() {
-            const body = 'client_id=' + encodeURIComponent(CLIENT_ID) +
-              '&client_secret=' + encodeURIComponent(CLIENT_SECRET) +
-              '&refresh_token=' + encodeURIComponent(REFRESH_TOKEN) +
-              '&grant_type=refresh_token';
-            const res = await httpsRequest({
-              hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) },
-            }, body);
-
-            // FIXED: Detect invalid_grant specifically and send actionable ntfy
-            if (res.status !== 200) {
-              let errorData = {};
-              try { errorData = JSON.parse(res.body); } catch(e) {}
-
-              if (errorData.error === 'invalid_grant') {
-                const msg = 'YouTube Refresh Token has EXPIRED.\n\n' +
-                  'To fix:\n' +
-                  '1. Go to: developers.google.com/oauthplayground\n' +
-                  '2. Select YouTube Data API v3 scopes\n' +
-                  '3. Authorize and get new refresh token\n' +
-                  '4. Update YOUTUBE_REFRESH_TOKEN in GitHub Secrets\n' +
-                  '5. Re-run workflow\n\n' +
-                  'Videos are rendered and saved as artifacts -- not lost.';
-                await sendNtfy(msg, 'ACTION REQUIRED -- YouTube Token Expired', 'urgent', 'x,warning');
-                console.log('ERROR: YouTube refresh token expired (invalid_grant)');
-                console.log('Videos are rendered and saved. Fix token and re-run upload step.');
-                fs.writeFileSync('out/.upload_results.json', '[]');
-                process.exit(1);
-              }
-
-              throw new Error('Token refresh failed: HTTP ' + res.status + ' -- ' + res.body.slice(0, 200));
-            }
-            return JSON.parse(res.body).access_token;
-          }
-
-          async function uploadVideo(token, filePath, meta, publishAt) {
-            const fileSize = fs.statSync(filePath).size;
-            const initBody = JSON.stringify({
-              snippet: {
-                title:       meta.title       || 'Daily Wealth Building',
-                description: meta.description || '',
-                tags:        meta.tags        || ['personalfinance', 'wealthbuilding'],
-                categoryId:  '27',
-              },
-              status: {
-                privacyStatus:           'private',
-                publishAt:               publishAt,
-                selfDeclaredMadeForKids: false,
-              },
-            });
-            const initRes = await httpsRequest({
-              hostname: 'www.googleapis.com',
-              path: '/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
-              method: 'POST',
-              headers: {
-                'Authorization':           'Bearer ' + token,
-                'Content-Type':            'application/json',
-                'Content-Length':          Buffer.byteLength(initBody),
-                'X-Upload-Content-Type':   'video/mp4',
-                'X-Upload-Content-Length': fileSize,
-              },
-            }, initBody);
-            if (initRes.status !== 200) throw new Error('Init failed: HTTP ' + initRes.status);
-            const uploadUrl = initRes.headers.location;
-            if (!uploadUrl) throw new Error('No upload URL');
-
-            const CHUNK = 8 * 1024 * 1024;
-            const fd    = fs.openSync(filePath, 'r');
-            let uploaded = 0, videoId = null;
-
-            while (uploaded < fileSize) {
-              const chunkSize = Math.min(CHUNK, fileSize - uploaded);
-              const buf = Buffer.alloc(chunkSize);
-              fs.readSync(fd, buf, 0, chunkSize, uploaded);
-              const urlObj   = new URL(uploadUrl);
-              const chunkRes = await httpsRequest({
-                hostname: urlObj.hostname, path: urlObj.pathname + urlObj.search, method: 'PUT',
-                headers: {
-                  'Authorization':  'Bearer ' + token,
-                  'Content-Length': chunkSize,
-                  'Content-Range':  'bytes ' + uploaded + '-' + (uploaded + chunkSize - 1) + '/' + fileSize,
-                },
-              }, buf);
-              uploaded += chunkSize;
-              if (chunkRes.status === 200 || chunkRes.status === 201) {
-                videoId = JSON.parse(chunkRes.body).id;
-                break;
-              }
-              if (chunkRes.status !== 308) throw new Error('Chunk failed: HTTP ' + chunkRes.status);
-              console.log('Uploading... ' + Math.round((uploaded / fileSize) * 100) + '%');
-            }
-            fs.closeSync(fd);
-            return videoId;
-          }
-
-          function getPublishAt(dayIndex) {
-            const now    = new Date();
-            const dow    = now.getUTCDay();
-            const diff   = (dow === 0 ? 0 : 1);
-            const today  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + diff, 9, 0, 0));
-            return new Date(today.getTime() + dayIndex * 86400000).toISOString();
-          }
-
-          (async function() {
-            let uploaded = 0, failed = 0;
-            const results   = [];
-            const scheduled = [];
-
-            let accessToken;
-            try {
-              accessToken = await getAccessToken();
-              console.log('Access token OK');
-            } catch(e) {
-              console.log('ERROR: ' + e.message);
-              fs.writeFileSync('out/.upload_results.json', '[]');
-              process.exit(1);
-            }
-
-            for (let i = 0; i < days.length; i++) {
-              const day      = days[i];
-              const filePath = 'out/' + day + '_final.mp4';
-              if (!fs.existsSync(filePath)) {
-                console.log('SKIP: ' + day + ' -- file not found');
-                results.push({ day: day, status: 'failed', error: 'file not found' });
-                failed++;
-                continue;
-              }
-              const meta      = dayMeta[day] || {};
-              const publishAt = getPublishAt(i);
-              console.log('\nUploading: ' + day + ' -> publishes: ' + publishAt);
-              try {
-                const videoId = await uploadVideo(accessToken, filePath, {
-                  title:       meta.youtubeTitle       || day + ' | Daily Wealth Building',
-                  description: meta.youtubeDescription || 'Daily wealth building tips. Follow for more.',
-                  tags:        ['personalfinance', 'wealthbuilding', 'financialfreedom', 'moneyhabits'],
-                }, publishAt);
-                console.log('UPLOADED: ' + day + ' -> https://youtu.be/' + videoId);
-                results.push({ day: day, videoId: videoId, url: 'https://youtu.be/' + videoId, status: 'ok', publishAt: publishAt });
-                scheduled.push({ day: day, videoId: videoId, url: 'https://youtu.be/' + videoId, publishAt: publishAt, notifScheduled: false, pinnedComment: meta.pinnedComment || '' });
-                uploaded++;
-              } catch(e) {
-                console.log('UPLOAD FAILED: ' + day + ': ' + e.message);
-                results.push({ day: day, status: 'failed', error: e.message });
-                failed++;
-              }
-            }
-
-            fs.writeFileSync('out/.upload_results.json', JSON.stringify(results, null, 2));
-
-            let existing = [];
-            try { existing = JSON.parse(fs.readFileSync('scheduled-videos.json', 'utf8')); } catch(e) {}
-            const merged = existing.filter(function(v) { return days.indexOf(v.day) === -1; }).concat(scheduled);
-            fs.writeFileSync('scheduled-videos.json', JSON.stringify(merged, null, 2));
-
-            console.log('\n--- YouTube Upload Summary ---');
-            console.log('Uploaded: ' + uploaded + ' | Failed: ' + failed);
-          })();
-          EOF
-
-      - name: Commit scheduled-videos.json to repo
+      - name: Commit scheduled-videos.json
         if: success()
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main || true
-          git add scheduled-videos.json 2>/dev/null || true
-          git add out/.week_info.json   2>/dev/null || true
+          git add scheduled-videos.json out/.week_info.json 2>/dev/null || true
           git diff --staged --quiet || git commit -m "chore: update scheduled videos [skip ci]"
           git push || true
 
-      # =========================================================================
-      # STEP: COMMIT VIDEO COUNTER + CONTENT HISTORY
-      # Increments counter after successful render so next run gets next day.
-      # =========================================================================
       - name: Commit video counter and content history
         if: success()
         run: |
-          node << 'EOF'
-          const fs = require('fs');
-
-          // Only update counter if Groq generation was used
-          if (!fs.existsSync('src/current-video.js')) {
-            console.log('No generated video -- skipping counter update');
-            process.exit(0);
-          }
-
-          let counter = { nextDay: 50, lastRendered: 'day49' };
-          try { counter = JSON.parse(fs.readFileSync('video-counter.json', 'utf8')); } catch(e) {}
-
-          const renderedDay = counter.nextDay;
-          counter.lastRendered   = 'day' + renderedDay;
-          counter.lastRenderedAt = new Date().toISOString();
-          counter.nextDay        = renderedDay + 1;
-
-          fs.writeFileSync('video-counter.json', JSON.stringify(counter, null, 2));
-          console.log('Counter updated: day' + renderedDay + ' done -> next: day' + counter.nextDay);
-          EOF
-
+          node << 'COUNTEREOF'
+          const fs=require('fs');
+          if(!fs.existsSync('src/current-video.js')){console.log('No generated video -- skipping counter');process.exit(0);}
+          let counter={nextDay:50};try{counter=JSON.parse(fs.readFileSync('video-counter.json','utf8'));}catch(e){}
+          const rendered=counter.nextDay;counter.lastRendered='day'+rendered;counter.lastRenderedAt=new Date().toISOString();counter.nextDay=rendered+1;
+          fs.writeFileSync('video-counter.json',JSON.stringify(counter,null,2));
+          console.log('Counter: day'+rendered+' done -> next: day'+counter.nextDay);
+          COUNTEREOF
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main || true
-          git add video-counter.json   2>/dev/null || true
-          git add content-history.json 2>/dev/null || true
-          git add src/current-video.js 2>/dev/null || true
-          git diff --staged --quiet || git commit -m "chore: update video counter + content history [skip ci]"
+          git add video-counter.json content-history.json src/current-video.js 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: video counter update [skip ci]"
           git push || true
 
       - name: Reddit auto-post
@@ -1642,214 +665,45 @@ jobs:
           REDDIT_USERNAME:      ${{ secrets.REDDIT_USERNAME }}
           REDDIT_PASSWORD:      ${{ secrets.REDDIT_PASSWORD }}
         run: |
-          node << 'EOF'
-          const fs    = require('fs');
-          const https = require('https');
+          node << 'REDDITEOF'
+          const fs=require('fs'),https=require('https');
+          const CID=process.env.REDDIT_CLIENT_ID||'',CS=process.env.REDDIT_CLIENT_SECRET||'',UN=process.env.REDDIT_USERNAME||'',PW=process.env.REDDIT_PASSWORD||'';
+          if(!CID||!UN){console.log('Reddit creds not set');process.exit(0);}
+          let info={},uploads=[];try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}
+          const ok=uploads.filter(function(u){return u.status==='ok';});if(!ok.length){console.log('No uploads -- skipping');process.exit(0);}
+          const first=ok[0],meta=((info.dayMeta||{})[first.day])||{};
+          function httpsReq(opts,body){return new Promise(function(resolve,reject){const req=https.request(opts,function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){resolve({status:res.statusCode,body:d});});});req.on('error',reject);if(body)req.write(body);req.end();});}
+          (async function(){try{const creds=Buffer.from(CID+':'+CS).toString('base64'),b='grant_type=password&username='+encodeURIComponent(UN)+'&password='+encodeURIComponent(PW);const tres=await httpsReq({hostname:'www.reddit.com',path:'/api/v1/access_token',method:'POST',headers:{'Authorization':'Basic '+creds,'Content-Type':'application/x-www-form-urlencoded','User-Agent':'DWB/1.0 by '+UN,'Content-Length':Buffer.byteLength(b)}},b);const td=JSON.parse(tres.body);if(!td.access_token)throw new Error('Reddit auth failed');const token=td.access_token,title=(meta.youtubeTitle||first.day+' -- Daily Wealth Building');for(const sub of['personalfinance','financialindependence']){const pb=new URLSearchParams({sr:sub,kind:'link',title:title.slice(0,300),url:first.url,resubmit:'true',nsfw:'false',spoiler:'false'}).toString();const pres=await httpsReq({hostname:'oauth.reddit.com',path:'/api/submit',method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/x-www-form-urlencoded','User-Agent':'DWB/1.0 by '+UN,'Content-Length':Buffer.byteLength(pb)}},pb);const pd=JSON.parse(pres.body);if(pd.success===false)console.log(sub+' FAILED');else console.log('Posted to r/'+sub);await new Promise(function(r){setTimeout(r,2000);});}}catch(e){console.log('Reddit ERROR: '+e.message);}})();
+          REDDITEOF
 
-          const CLIENT_ID     = process.env.REDDIT_CLIENT_ID     || '';
-          const CLIENT_SECRET = process.env.REDDIT_CLIENT_SECRET || '';
-          const USERNAME      = process.env.REDDIT_USERNAME       || '';
-          const PASSWORD      = process.env.REDDIT_PASSWORD       || '';
-
-          if (!CLIENT_ID || !USERNAME) {
-            console.log('Reddit credentials not set -- skipping.');
-            process.exit(0);
-          }
-
-          let info    = {};
-          let uploads = [];
-          try { info    = JSON.parse(fs.readFileSync('out/.week_info.json',      'utf8')); } catch(e) {}
-          try { uploads = JSON.parse(fs.readFileSync('out/.upload_results.json', 'utf8')); } catch(e) {}
-
-          const successUploads = uploads.filter(function(u) { return u.status === 'ok'; });
-          if (successUploads.length === 0) { console.log('No successful uploads -- skipping Reddit.'); process.exit(0); }
-
-          const firstUpload = successUploads[0];
-          const dayMeta     = ((info.dayMeta || {})[firstUpload.day]) || {};
-
-          function httpsRequest(options, body) {
-            return new Promise(function(resolve, reject) {
-              const req = https.request(options, function(res) {
-                let data = '';
-                res.on('data', function(d) { data += d; });
-                res.on('end', function() { resolve({ status: res.statusCode, body: data }); });
-              });
-              req.on('error', reject);
-              if (body) req.write(body);
-              req.end();
-            });
-          }
-
-          async function getRedditToken() {
-            const creds = Buffer.from(CLIENT_ID + ':' + CLIENT_SECRET).toString('base64');
-            const body  = 'grant_type=password&username=' + encodeURIComponent(USERNAME) + '&password=' + encodeURIComponent(PASSWORD);
-            const res   = await httpsRequest({
-              hostname: 'www.reddit.com', path: '/api/v1/access_token', method: 'POST',
-              headers: {
-                'Authorization':  'Basic ' + creds,
-                'Content-Type':   'application/x-www-form-urlencoded',
-                'User-Agent':     'DWB-Pipeline/1.0 by ' + USERNAME,
-                'Content-Length': Buffer.byteLength(body),
-              }
-            }, body);
-            const data = JSON.parse(res.body);
-            if (!data.access_token) throw new Error('Reddit auth failed');
-            return data.access_token;
-          }
-
-          async function postToSubreddit(token, subreddit, title, url) {
-            const body = new URLSearchParams({
-              sr: subreddit, kind: 'link',
-              title: title.slice(0, 300), url: url,
-              resubmit: 'true', nsfw: 'false', spoiler: 'false',
-            }).toString();
-            const res = await httpsRequest({
-              hostname: 'oauth.reddit.com', path: '/api/submit', method: 'POST',
-              headers: {
-                'Authorization':  'Bearer ' + token,
-                'Content-Type':   'application/x-www-form-urlencoded',
-                'User-Agent':     'DWB-Pipeline/1.0 by ' + USERNAME,
-                'Content-Length': Buffer.byteLength(body),
-              }
-            }, body);
-            const data = JSON.parse(res.body);
-            if (data.success === false) throw new Error('Reddit post failed: ' + res.body.slice(0, 200));
-            return data;
-          }
-
-          (async function() {
-            try {
-              const token = await getRedditToken();
-              const title = dayMeta.youtubeTitle || ('DWB ' + firstUpload.day + ' -- Daily Wealth Building');
-              const url   = firstUpload.url;
-              try {
-                await postToSubreddit(token, 'personalfinance', title, url);
-                console.log('Posted to r/personalfinance');
-              } catch(e) { console.log('r/personalfinance FAILED: ' + e.message); }
-              await new Promise(function(r) { setTimeout(r, 2000); });
-              try {
-                await postToSubreddit(token, 'financialindependence', title, url);
-                console.log('Posted to r/financialindependence');
-              } catch(e) { console.log('r/financialindependence FAILED: ' + e.message); }
-            } catch(e) { console.log('Reddit ERROR: ' + e.message); }
-          })();
-          EOF
-
-      - name: Schedule per-video notifications
+      - name: Schedule notifications
         if: success()
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
-          node << 'EOF'
-          const fs    = require('fs');
-          const https = require('https');
-          const NTFY  = process.env.NTFY_TOPIC || '';
-
-          function safeTitle(str) {
-            return (str || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
-          }
-
-          let scheduledVideos = [];
-          try { scheduledVideos = JSON.parse(fs.readFileSync('scheduled-videos.json', 'utf8')); } catch(e) {}
-          const newVideos = scheduledVideos.filter(function(v) { return !v.notifScheduled && v.publishAt; });
-
-          if (newVideos.length === 0) { console.log('No new videos to notify'); process.exit(0); }
-
-          function sendNtfy(message, title) {
-            return new Promise(function(resolve) {
-              const data = Buffer.from(message);
-              const req  = https.request({
-                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
-                headers: {
-                  'Content-Type':   'text/plain',
-                  'Content-Length': data.length,
-                  'Title':          safeTitle(title),
-                  'Tags':           'calendar,movie_camera',
-                  'Priority':       'default',
-                },
-              }, function(res) { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
-              req.on('error', function() { resolve(); });
-              req.write(data);
-              req.end();
-            });
-          }
-
-          (async function() {
-            const lines = ['DWB Schedule -- Videos go live:', ''];
-            newVideos.forEach(function(v) {
-              const d       = new Date(v.publishAt);
-              const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()];
-              const time    = d.getUTCHours() + ':' + String(d.getUTCMinutes()).padStart(2,'0') + ' UTC';
-              lines.push(v.day + ' -- ' + dayName + ' ' + time + ' -> ' + v.url);
-              v.notifScheduled = true;
-            });
-            await sendNtfy(lines.join('\n'), 'DWB ' + newVideos.length + ' Videos Scheduled');
-            fs.writeFileSync('scheduled-videos.json', JSON.stringify(scheduledVideos, null, 2));
-          })();
-          EOF
+          node << 'NOTIFEOF'
+          const fs=require('fs'),https=require('https');
+          const NTFY=process.env.NTFY_TOPIC||'';
+          function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
+          let sv=[];try{sv=JSON.parse(fs.readFileSync('scheduled-videos.json','utf8'));}catch(e){}
+          const nv=sv.filter(function(v){return !v.notifScheduled&&v.publishAt;});
+          if(!nv.length){console.log('No new notifications');process.exit(0);}
+          function sendNtfy(msg,title){if(!NTFY)return Promise.resolve();const data=Buffer.from(msg);return new Promise(function(resolve){const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle(title),'Tags':'calendar','Priority':'default'}},function(res){resolve();});req.on('error',function(){resolve();});req.write(data);req.end();});}
+          (async function(){const lines=['DWB Schedule:',''];nv.forEach(function(v){const d=new Date(v.publishAt);lines.push(v.day+' -> '+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()]+' '+d.getUTCHours()+':00 UTC -> '+v.url);v.notifScheduled=true;});await sendNtfy(lines.join('\n'),'DWB '+nv.length+' Videos Scheduled');fs.writeFileSync('scheduled-videos.json',JSON.stringify(sv,null,2));})();
+          NOTIFEOF
 
       - name: Update README
         if: success()
         run: |
-          node << 'EOF'
-          const fs   = require('fs');
-          const today    = new Date().toISOString().split('T')[0];
-          const runId    = process.env.GITHUB_RUN_ID     || '0';
-          const runNum   = process.env.GITHUB_RUN_NUMBER || '0';
-          const repo     = process.env.GITHUB_REPOSITORY || 'dailywealthbuilding/DWB-Videos';
-
-          let info    = { week: 'unknown', days: [] };
-          let uploads = [];
-          try { info    = JSON.parse(fs.readFileSync('out/.week_info.json',      'utf8')); } catch(e) {}
-          try { uploads = JSON.parse(fs.readFileSync('out/.upload_results.json', 'utf8')); } catch(e) {}
-
-          const rendered = (info.days || []).filter(function(d) { return fs.existsSync('out/' + d + '_final.mp4'); });
-          const uploadedLinks = uploads.filter(function(u) { return u.status === 'ok'; })
-            .map(function(u) { return '- [' + u.day + '](' + u.url + ')'; }).join('\n');
-
-          const badge = function(label, msg, color) {
-            return '![' + label + '](https://img.shields.io/badge/' +
-              encodeURIComponent(label) + '-' + encodeURIComponent(msg) + '-' + color + ')';
-          };
-
-          const readme = [
-            '# DWB -- Daily Wealth Building',
-            '',
-            '@DailyWealthBuilding | 90-Day Public Affiliate Challenge',
-            '',
-            badge('Last Render', today, 'gold') + ' ' +
-            badge('Week', info.week, 'blue') + ' ' +
-            badge('Videos', rendered.length + '/' + (info.days || []).length, rendered.length === (info.days || []).length ? 'brightgreen' : 'orange'),
-            '',
-            '## Latest Render -- ' + today,
-            '',
-            '| Field | Value |',
-            '|---|---|',
-            '| Week | ' + info.week + ' |',
-            '| Days | ' + (info.days || []).join(', ') + ' |',
-            '| Rendered | ' + rendered.length + ' / ' + (info.days || []).length + ' |',
-            '| Run | [#' + runNum + '](https://github.com/' + repo + '/actions/runs/' + runId + ') |',
-            '',
-            uploadedLinks ? ('## YouTube Links\n\n' + uploadedLinks) : '',
-            '',
-            '## Pipeline',
-            '',
-            '- Groq AI script generation -- fresh script per video based on trending',
-            '- Remotion 4.0 + GitHub Actions -- 1 video per run',
-            '- 1080x1920 30fps | CRF 18 | h264',
-            '- 6 clips per video -- Pixabay + Pexels + Ken Burns fallback',
-            '- Music: Jamendo -> Pixabay fallback',
-            '- YouTube auto-upload + scheduled publishing',
-            '- Push notifications via ntfy',
-            '',
-            '---',
-            '_Auto-updated by GitHub Actions on ' + today + '_',
-          ].filter(function(l) { return l !== undefined; }).join('\n');
-
-          fs.writeFileSync('README.md', readme);
-          console.log('README.md updated');
-          EOF
-
+          node << 'READMEEOF'
+          const fs=require('fs');
+          const today=new Date().toISOString().split('T')[0],runId=process.env.GITHUB_RUN_ID||'0',runNum=process.env.GITHUB_RUN_NUMBER||'0',repo=process.env.GITHUB_REPOSITORY||'dailywealthbuilding/DWB-Videos';
+          let info={week:'unknown',days:[]},uploads=[];try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}
+          const rendered=(info.days||[]).filter(function(d){return fs.existsSync('out/'+d+'_final.mp4');});
+          const links=uploads.filter(function(u){return u.status==='ok';}).map(function(u){return '- ['+u.day+']('+u.url+')';}).join('\n');
+          const readme=['# DWB -- Daily Wealth Building','','@DailyWealthBuilding | 90-Day Public Affiliate Challenge','','![Render](https://img.shields.io/badge/Last_Render-'+today+'-gold) ![Videos](https://img.shields.io/badge/Videos-'+rendered.length+'/'+(info.days||[]).length+'-'+(rendered.length===(info.days||[]).length?'brightgreen':'orange')+')',  '','## Latest -- '+today,'','| | |','|---|---|','| Week | '+info.week+' |','| Days | '+(info.days||[]).join(', ')+' |','| Rendered | '+rendered.length+'/'+(info.days||[]).length+' |','| Run | [#'+runNum+'](https://github.com/'+repo+'/actions/runs/'+runId+') |','',links?'## YouTube Links\n\n'+links:'','','## Pipeline','','- Groq AI auto-generates fresh script each run','- Remotion 4.0 + GitHub Actions | 7PM EAT daily','- 1080x1920 30fps | CRF 18 | h264','- 6 clips/video | Pixabay + Pexels + KenBurns fallback','- safeTitle() on all ntfy headers -- no emoji crashes','','---','_Auto-updated '+today+'_'].filter(function(l){return l!==undefined;}).join('\n');
+          fs.writeFileSync('README.md',readme);console.log('README updated');
+          READMEEOF
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
@@ -1857,10 +711,10 @@ jobs:
           git pull --rebase origin main || true
           git push
 
-      - name: Upload all export artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dwb-${{ env.ACTIVE_WEEK }}-exports-${{ github.run_number }}
+          name: dwb-${{ env.ACTIVE_WEEK }}-run${{ github.run_number }}
           path: |
             out/*.mp4
             out/thumbs/*.jpg
@@ -1869,76 +723,25 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-      - name: Send ntfy final notification
+      - name: Send final ntfy notification
         if: always()
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
-          node << 'EOF'
-          const https   = require('https');
-          const fs      = require('fs');
-          const NTFY    = process.env.NTFY_TOPIC || '';
-
-          function safeTitle(str) {
-            return (str || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
-          }
-
-          const isSuccess = process.env.GITHUB_JOB_STATUS !== 'failure';
-          let info = { week: 'unknown', days: [] };
-          let uploads = [], musicResults = [], trending = [];
-          try { info         = JSON.parse(fs.readFileSync('out/.week_info.json',      'utf8')); } catch(e) {}
-          try { uploads      = JSON.parse(fs.readFileSync('out/.upload_results.json', 'utf8')); } catch(e) {}
-          try { musicResults = JSON.parse(fs.readFileSync('out/.music_results.json',  'utf8')); } catch(e) {}
-          try { trending     = JSON.parse(fs.readFileSync('out/.trending_sounds.json','utf8')); } catch(e) {}
-
-          const lines = [];
-          lines.push('DWB Pipeline ' + (isSuccess ? 'COMPLETE' : 'FAILED'));
-          lines.push(info.week + ' | ' + new Date().toISOString().slice(0, 10));
-          lines.push('');
-
-          let passed = 0;
-          for (const day of (info.days || [])) {
-            const mp4  = 'out/' + day + '_final.mp4';
-            const size = fs.existsSync(mp4) ? Math.round(fs.statSync(mp4).size / 1024 / 1024) : 0;
-            if (size > 0) {
-              const upload = uploads.find(function(u) { return u.day === day; });
-              const ytLink = (upload && upload.status === 'ok') ? ' -> ' + upload.url : '';
-              const music  = musicResults.find(function(m) { return m.day === day; });
-              const mood   = music ? ' [' + (music.mood || '') + ']' : '';
-              lines.push(day + ' OK - ' + size + 'MB' + mood + ytLink);
-              passed++;
-            } else {
-              lines.push(day + ' FAILED');
-            }
-          }
-
-          lines.push('');
-          lines.push('Result: ' + passed + '/' + (info.days || []).length + ' rendered');
-          const ytCount = uploads.filter(function(u) { return u.status === 'ok'; }).length;
-          if (ytCount > 0) lines.push('YouTube: ' + ytCount + ' uploaded');
-
-          if (trending.length > 0) {
-            lines.push('');
-            lines.push('Top TikTok Sounds:');
-            trending.slice(0, 3).forEach(function(s) { lines.push('  ' + s.rank + '. ' + s.title + ' - ' + s.artist); });
-          }
-
-          if (!NTFY) { console.log('NTFY_TOPIC not set -- skipping'); process.exit(0); }
-
-          const message = lines.join('\n');
-          const data    = Buffer.from(message);
-          const req = https.request({
-            hostname: 'ntfy.sh', port: 443,
-            path:     '/' + NTFY, method: 'POST',
-            headers: {
-              'Content-Type':   'text/plain',
-              'Content-Length': data.length,
-              'Title':          safeTitle('DWB ' + (isSuccess ? 'DONE' : 'FAILED') + ' - ' + info.week + ' - ' + passed + '/' + (info.days || []).length),
-              'Priority':       isSuccess ? 'default' : 'high',
-              'Tags':           isSuccess ? 'white_check_mark,clapper' : 'x,warning',
-            },
-          }, function(res) { console.log('ntfy sent: HTTP ' + res.statusCode); });
-          req.on('error', function(e) { console.log('ntfy error: ' + e.message); });
-          req.write(data);
-          req.end();
-          EOF
+          node << 'FINALEOF'
+          const https=require('https'),fs=require('fs');
+          const NTFY=process.env.NTFY_TOPIC||'';
+          function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
+          const isOk=process.env.GITHUB_JOB_STATUS!=='failure';
+          let info={week:'unknown',days:[]},uploads=[],music=[],trending=[];
+          try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}try{music=JSON.parse(fs.readFileSync('out/.music_results.json','utf8'));}catch(e){}try{trending=JSON.parse(fs.readFileSync('out/.trending_sounds.json','utf8'));}catch(e){}
+          const lines=['DWB Pipeline '+(isOk?'COMPLETE':'FAILED'),info.week+' | '+new Date().toISOString().slice(0,10),''];
+          let passed=0;for(const day of (info.days||[])){const mp4='out/'+day+'_final.mp4',sz=fs.existsSync(mp4)?Math.round(fs.statSync(mp4).size/1024/1024):0;if(sz>0){const u=uploads.find(function(x){return x.day===day;}),m=music.find(function(x){return x.day===day;});lines.push(day+' OK '+sz+'MB'+(m?' ['+m.mood+']':'')+((u&&u.status==='ok')?' -> '+u.url:''));passed++;}else lines.push(day+' FAILED');}
+          lines.push('','Result: '+passed+'/'+(info.days||[]).length);
+          const ytc=uploads.filter(function(u){return u.status==='ok';}).length;if(ytc>0)lines.push('YouTube: '+ytc+' uploaded');
+          if(trending.length){lines.push('','Trending:');trending.slice(0,3).forEach(function(s){lines.push('  '+s.rank+'. '+s.title);});}
+          if(!NTFY){console.log('NTFY not set');process.exit(0);}
+          const msg=lines.join('\n'),data=Buffer.from(msg);
+          const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle('DWB '+(isOk?'DONE':'FAILED')+' '+info.week+' '+passed+'/'+(info.days||[]).length),'Priority':isOk?'default':'high','Tags':isOk?'white_check_mark':'x'}},function(res){console.log('ntfy: '+res.statusCode);});
+          req.on('error',function(){});req.write(data);req.end();
+          FINALEOF
