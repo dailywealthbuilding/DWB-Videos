@@ -1,52 +1,50 @@
-// src/index.jsx -- DWB Remotion Root v7.0
+// src/index.jsx -- DWB Remotion Root v7.1
 //
-// KEY FIX: Static imports only. No require(). No try/catch swallowing errors.
-// Remotion bundler (esbuild) cannot mix require() with ES module files.
-// Previous version: require() inside try/catch silently swallowed all errors
-// and registered ZERO compositions -> "Could not find composition with ID day37"
+// RULE: Only import week content files that EXIST in the repo.
+// Static imports fail hard if the file is missing -- no try/catch rescue.
 //
-// HOW THIS WORKS:
-// 1. Static imports bring in all week content arrays.
-// 2. ALL compositions registered with Remotion.
-// 3. render.yml passes `--composition day37` to pick specific day.
-// 4. No week-detection needed in index.jsx -- render.yml handles that.
-//
-// ADDING FUTURE WEEKS: add import below + spread into allEntries.
+// CURRENT STATE: week6-content.js only.
+// When you upload week7-content.js to src/, uncomment the week7 lines.
+// Same pattern for week8, week9 etc.
 
 import { registerRoot, Composition } from 'remotion';
 import { VideoComposition } from './compositions/VideoComposition.jsx';
 
-// -- Week content: static imports --
-// week6: default export
-import week6Videos from './week6-content.js';
-// week7: named export
-import { week7Videos } from './week7-content.js';
+// ── Week content imports ──────────────────────────────────────────────────────
+// Only uncomment a line once that file is uploaded to src/ in the repo.
 
-// Safely coerce to array
+import week6Videos from './week6-content.js';           // ✅ exists
+// import { week7Videos } from './week7-content.js';    // ❌ upload first
+// import { week8Videos } from './week8-content.js';    // ❌ upload first
+
+// ── Groq-generated video ─────────────────────────────────────────────────────
+// When Groq runs, it writes src/current-video.js.
+// Import it here so Remotion can render it.
+// Comment this out if current-video.js doesn't exist yet.
+// import { currentVideo } from './current-video.js';
+
+// ── Collect all entries ───────────────────────────────────────────────────────
 const week6 = Array.isArray(week6Videos) ? week6Videos : [];
-const week7 = Array.isArray(week7Videos) ? week7Videos : [];
+// const week7 = Array.isArray(week7Videos) ? week7Videos : [];
 
-// All entries combined
-// Add week8, week9 etc here as you create those files:
-// import { week8Videos } from './week8-content.js';
-// const week8 = Array.isArray(week8Videos) ? week8Videos : [];
 const allEntries = [
   ...week6,
-  ...week7,
-  // ...week8,
+  // ...week7,
+  // ...(currentVideo ? [currentVideo] : []),
 ];
 
-// Filter invalid
+// ── Validate ──────────────────────────────────────────────────────────────────
 const validEntries = allEntries.filter(function(e) {
   return e && e.id && Array.isArray(e.overlays);
 });
 
 if (validEntries.length === 0) {
-  console.error('[DWB] ERROR: No valid compositions found! Check week content files.');
+  console.error('[DWB] ERROR: No valid compositions! Check week content files exist in src/');
 } else {
-  console.log('[DWB] ' + validEntries.length + ' compositions: ' + validEntries.map(function(e){return e.id;}).join(', '));
+  console.log('[DWB] ' + validEntries.length + ' compositions: ' + validEntries.map(function(e) { return e.id; }).join(', '));
 }
 
+// ── Root ──────────────────────────────────────────────────────────────────────
 export const RemotionRoot = () => (
   <>
     {validEntries.map(function(entry) {
@@ -61,12 +59,12 @@ export const RemotionRoot = () => (
           height={1920}
           defaultProps={{
             videoId:        entry.id,
-            music:          entry.music          || (entry.id + '.mp3'),
-            overlays:       entry.overlays        || [],
-            backgroundMode: entry.backgroundMode  || undefined,
-            customClips:    entry.customClips      || undefined,
-            photos:         entry.photos           || undefined,
-            photoSpeed:     entry.photoSpeed       || undefined,
+            music:          entry.music         || (entry.id + '.mp3'),
+            overlays:       entry.overlays       || [],
+            backgroundMode: entry.backgroundMode || undefined,
+            customClips:    entry.customClips    || undefined,
+            photos:         entry.photos         || undefined,
+            photoSpeed:     entry.photoSpeed     || undefined,
           }}
         />
       );
