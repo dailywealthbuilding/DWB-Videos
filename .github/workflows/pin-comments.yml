@@ -1,16 +1,15 @@
 name: Post Pinned Comments (Daily)
 
-# -----------------------------------------------------------------------------
-# Runs daily at 10AM UTC (1PM EAT) -- 1 hour after scheduled video publishes
-# Checks scheduled-videos.json for videos that just went public
-# Posts pinned comment on each newly public video
-# Marks them as commentPosted: true so they're never double-posted
-# -----------------------------------------------------------------------------
+# Runs daily 10AM UTC = 1PM EAT
+# Videos are scheduled to publish at 4PM UTC (7PM EAT)
+# This runs BEFORE publish to be safe -- checks actual public status first
+# Checks scheduled-videos.json for videos that went public
+# Posts the pinnedComment on each, marks commentPosted: true
 
 on:
   schedule:
-    - cron: '0 10 * * *'  # Daily 10AM UTC = 1PM EAT
-  workflow_dispatch: {}   # Manual trigger if needed
+    - cron: '0 18 * * *'   # 6PM UTC = 9PM EAT (2hrs after 4PM UTC publish)
+  workflow_dispatch: {}
 
 jobs:
   pin-comments:
@@ -30,20 +29,55 @@ jobs:
 
       - name: Post pinned comments on newly public videos
         env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOPIC:            ${{ secrets.NTFY_TOPIC }}
         run: |
-          node  {
+          node << 'PINEOF'
+          const https = require('https');
+          const fs    = require('fs');
+
+          const CLIENT_ID     = process.env.YOUTUBE_CLIENT_ID     || '';
+          const CLIENT_SECRET = process.env.YOUTUBE_CLIENT_SECRET || '';
+          const REFRESH_TOKEN = process.env.YOUTUBE_REFRESH_TOKEN || '';
+          const NTFY          = process.env.NTFY_TOPIC            || '';
+
+          function safeTitle(s) {
+            return (s || '').replace(/[^\x20-\x7E]/g, '').replace(/\s+/g, ' ').trim().slice(0, 100);
+          }
+
+          // Load scheduled videos
+          let scheduled = [];
+          try { scheduled = JSON.parse(fs.readFileSync('scheduled-videos.json', 'utf8')); } catch(e) {}
+
+          if (scheduled.length === 0) {
+            console.log('No scheduled videos found -- skipping');
+            process.exit(0);
+          }
+
+          const now = new Date();
+
+          // Find videos that should have published by now and haven't had a comment yet
+          const pending = scheduled.filter(function(v) {
             if (v.commentPosted) return false;
             if (!v.publishAt)    return false;
-            // Only process videos that should have gone public by now
-            return new Date(v.publishAt)  {
-              const req = https.request(options, res => {
+            if (!v.videoId)      return false;
+            return new Date(v.publishAt) <= now;
+          });
+
+          console.log('Pending comment: ' + pending.length + ' video(s)');
+          if (pending.length === 0) {
+            console.log('No videos pending pinned comments -- all done');
+            process.exit(0);
+          }
+
+          function httpsRequest(options, body) {
+            return new Promise(function(resolve, reject) {
+              const req = https.request(options, function(res) {
                 let data = '';
-                res.on('data', d => data += d);
-                res.on('end', () => resolve({ status: res.statusCode, body: data }));
+                res.on('data', function(d) { data += d; });
+                res.on('end', function() { resolve({ status: res.statusCode, body: data }); });
               });
               req.on('error', reject);
               if (body) req.write(body);
@@ -51,79 +85,83 @@ jobs:
             });
           }
 
+          function sendNtfy(message, title) {
+            if (!NTFY) return Promise.resolve();
+            const data = Buffer.from(message);
+            return new Promise(function(resolve) {
+              const req = https.request({
+                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
+                headers: {
+                  'Content-Type': 'text/plain', 'Content-Length': data.length,
+                  'Title': safeTitle(title), 'Tags': 'pushpin', 'Priority': 'default',
+                },
+              }, function(res) { console.log('ntfy: ' + res.statusCode); resolve(); });
+              req.on('error', function() { resolve(); });
+              req.write(data); req.end();
+            });
+          }
+
           async function getAccessToken() {
-            const body = new URLSearchParams({
-              client_id:     CLIENT_ID,
-              client_secret: CLIENT_SECRET,
-              refresh_token: REFRESH_TOKEN,
-              grant_type:    'refresh_token',
-            }).toString();
-            const res = await httpsRequest({
-              hostname: 'oauth2.googleapis.com',
-              path:     '/token',
-              method:   'POST',
-              headers:  { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) }
+            const body = 'client_id=' + encodeURIComponent(CLIENT_ID) +
+              '&client_secret=' + encodeURIComponent(CLIENT_SECRET) +
+              '&refresh_token=' + encodeURIComponent(REFRESH_TOKEN) +
+              '&grant_type=refresh_token';
+            const res  = await httpsRequest({
+              hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) }
             }, body);
             const data = JSON.parse(res.body);
-            if (!data.access_token) throw new Error('Failed to get access token: ' + res.body);
+            if (!data.access_token) {
+              let ed = {};
+              try { ed = JSON.parse(res.body); } catch(e) {}
+              if (ed.error === 'invalid_grant') {
+                await sendNtfy(
+                  'YouTube token expired. Fix: developers.google.com/oauthplayground',
+                  'ACTION REQUIRED YouTube Token Expired'
+                );
+              }
+              throw new Error('Token failed: ' + res.body.slice(0, 100));
+            }
             return data.access_token;
           }
 
-          async function checkVideoPublic(accessToken, videoId) {
-            const res = await httpsRequest({
+          async function checkVideoPublic(token, videoId) {
+            const res  = await httpsRequest({
               hostname: 'www.googleapis.com',
-              path:     '/youtube/v3/videos?part=status&id=' + videoId,
-              method:   'GET',
-              headers:  { 'Authorization': 'Bearer ' + accessToken }
+              path: '/youtube/v3/videos?part=status&id=' + videoId,
+              method: 'GET', headers: { 'Authorization': 'Bearer ' + token }
             });
             const data = JSON.parse(res.body);
             const item = (data.items || [])[0];
-            return item && item.status && item.status.privacyStatus === 'public';
+            return item && (item.status || {}).privacyStatus === 'public';
           }
 
-          async function postComment(accessToken, videoId, text) {
+          async function postComment(token, videoId, text) {
             const body = JSON.stringify({
               snippet: {
-                videoId,
+                videoId: videoId,
                 topLevelComment: { snippet: { textOriginal: text } },
               },
             });
             const res = await httpsRequest({
               hostname: 'www.googleapis.com',
-              path:     '/youtube/v3/commentThreads?part=snippet',
-              method:   'POST',
-              headers:  {
-                'Authorization':  'Bearer ' + accessToken,
+              path: '/youtube/v3/commentThreads?part=snippet',
+              method: 'POST',
+              headers: {
+                'Authorization':  'Bearer ' + token,
                 'Content-Type':   'application/json',
                 'Content-Length': Buffer.byteLength(body),
               },
             }, body);
-            if (res.status !== 200) throw new Error('Comment failed: HTTP ' + res.status + ' ' + res.body);
-            return JSON.parse(res.body).id;
+            if (res.status !== 200) throw new Error('Comment HTTP ' + res.status + ': ' + res.body.slice(0, 150));
+            return (JSON.parse(res.body) || {}).id || 'posted';
           }
 
-          async function sendNtfy(message, title) {
-            if (!NTFY) return;
-            const data = Buffer.from(message);
-            return new Promise((resolve) => {
-              const req = https.request({
-                hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
-                headers: {
-                  'Content-Type': 'text/plain', 'Content-Length': data.length,
-                  'Title': title, 'Tags': 'pushpin', 'Priority': 'default',
-                }
-              }, res => { console.log('ntfy: HTTP ' + res.statusCode); resolve(); });
-              req.on('error', () => resolve());
-              req.write(data);
-              req.end();
-            });
-          }
-
-          (async () => {
+          (async function() {
             let accessToken;
             try {
               accessToken = await getAccessToken();
-              console.log('YouTube access token obtained');
+              console.log('Token OK');
             } catch(e) {
               console.log('ERROR: ' + e.message);
               process.exit(1);
@@ -132,15 +170,16 @@ jobs:
             let posted = 0, skipped = 0, failed = 0;
             const ntfyLines = ['DWB Pinned Comments -- ' + now.toISOString().slice(0, 10), ''];
 
-            for (const video of pending) {
+            for (var i = 0; i < pending.length; i++) {
+              var video = pending[i];
               console.log('\nProcessing: ' + video.day + ' (' + video.videoId + ')');
 
-              // Double-check it's actually public now
+              // Check if actually public
               try {
-                const isPublic = await checkVideoPublic(accessToken, video.videoId);
+                var isPublic = await checkVideoPublic(accessToken, video.videoId);
                 if (!isPublic) {
-                  console.log('SKIP: ' + video.day + ' -- not yet public');
-                  ntfyLines.push(video.day + ': not yet public -- will retry tomorrow');
+                  console.log('SKIP: ' + video.day + ' -- not yet public (will retry tomorrow)');
+                  ntfyLines.push(video.day + ': not yet public');
                   skipped++;
                   continue;
                 }
@@ -148,9 +187,9 @@ jobs:
                 console.log('WARN: Could not check status for ' + video.day + ': ' + e.message);
               }
 
-              if (!video.pinnedComment) {
-                console.log('SKIP: ' + video.day + ' -- no pinned comment');
-                video.commentPosted = true; // mark done so we don't retry
+              if (!video.pinnedComment || video.pinnedComment.trim() === '') {
+                console.log('SKIP: ' + video.day + ' -- no pinned comment defined');
+                video.commentPosted = true;
                 skipped++;
                 continue;
               }
@@ -158,36 +197,37 @@ jobs:
               try {
                 await postComment(accessToken, video.videoId, video.pinnedComment);
                 video.commentPosted = true;
-                console.log('Pinned comment posted: ' + video.day + ' -> ' + video.url);
-                ntfyLines.push(video.day + ' pinned  -> ' + video.url);
+                console.log('Posted: ' + video.day + ' -> ' + (video.url || ''));
+                ntfyLines.push(video.day + ' pinned -> ' + (video.url || ''));
                 posted++;
               } catch(e) {
                 console.log('FAILED: ' + video.day + ': ' + e.message);
-                ntfyLines.push(video.day + ' FAILED: ' + e.message);
+                ntfyLines.push(video.day + ' FAILED: ' + e.message.slice(0, 60));
                 failed++;
               }
 
-              // Small delay between API calls
-              await new Promise(r => setTimeout(r, 1000));
+              await new Promise(function(r) { setTimeout(r, 1500); });
             }
 
-            // -- Save updated scheduled-videos.json --
+            // Save updated file
             fs.writeFileSync('scheduled-videos.json', JSON.stringify(scheduled, null, 2));
 
-            console.log('\n--- Pinned Comments Summary ---');
-            console.log('Posted: ' + posted + ' | Skipped: ' + skipped + ' | Failed: ' + failed);
-
-            // -- Send ntfy notification --
+            console.log('\nPosted: ' + posted + ' | Skipped: ' + skipped + ' | Failed: ' + failed);
             ntfyLines.push('');
             ntfyLines.push('Posted: ' + posted + ' | Skipped: ' + skipped + ' | Failed: ' + failed);
-            await sendNtfy(ntfyLines.join('\n'), 'DWB Pinned Comments ' + (failed > 0 ? 'PARTIAL' : 'DONE'));
+
+            await sendNtfy(
+              ntfyLines.join('\n'),
+              'DWB Pinned Comments ' + (failed > 0 ? 'PARTIAL' : 'DONE')
+            );
           })();
-          EOF
+          PINEOF
 
       - name: Commit updated scheduled-videos.json
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main || true
           git add scheduled-videos.json
           git diff --staged --quiet || git commit -m "chore: update pinned comment status [skip ci]"
-          git push
+          git push || true
