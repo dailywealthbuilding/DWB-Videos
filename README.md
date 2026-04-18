@@ -2,7 +2,7 @@
 
 @DailyWealthBuilding | 90-Day Public Affiliate Challenge
 
-![Render](https://img.shields.io/badge/Last_Render-2026-04-18-gold) ![Videos](https://img.shields.io/badge/Videos-0/1-orange)
+![Render](https://img.shields.io/badge/Last_Render-2026-04-18-gold) ![Videos](https://img.shields.io/badge/Videos-1/1-brightgreen)
 
 ## Latest -- 2026-04-18
 
@@ -10,10 +10,12 @@
 |---|---|
 | Week | override |
 | Days | day37 |
-| Rendered | 0/1 |
-| Run | [#42](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24612844943) |
+| Rendered | 1/1 |
+| Run | [#43](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24613996528) |
 
+## YouTube Links
 
+- [day37](https://youtu.be/nWR-UfGrw8g)
 
 ## Pipeline
 
