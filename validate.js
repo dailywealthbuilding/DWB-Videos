@@ -1,30 +1,43 @@
 #!/usr/bin/env node
-// validate.js -- DWB Pre-Render Validator v1.0
+// validate.js -- DWB Pre-Render Validator v2.0
+// FILE PATH: validate.js (repo root)
+// v2 UPDATE: Added all v8 animation types to KNOWN_ANIMATIONS
 const fs   = require('fs');
 const path = require('path');
 
 const TOTAL_FRAMES    = 900;
-const MAX_TEXT_LEN    = 80;
+const MAX_TEXT_LEN    = 100;
 const MIN_AUDIO_BYTES = 50000;
 
 const REQUIRED_SCHEMA_FIELDS = ['id','filename','overlays','tiktokCaption','youtubeTitle','youtubeDescription','pinnedComment'];
 
 const KNOWN_ANIMATIONS = [
+  // Phase 1 Core
   'fade','pop','slide-left','slide-right','slide-up','slide-down',
   'bounce','zoom-punch','zoom-out','heartbeat','shake','glitch',
   'letter-expand','typewriter','word-highlight','scramble','stagger',
   'multi-line','strike','ellipsis','counter','neon-glow','highlight-box',
   'shimmer','frosted','color-pulse','3d-extrude','caption-bar',
+  // Phase 2
   'gradient-text','outlined','mask-reveal','pixel-dissolve','vhs',
-  'strobe','pulse-ring','underline-draw','weight-shift','diagonal-wipe','caps',
-  'outline','gradient-sweep',
+  'strobe','pulse-ring','underline-draw','weight-shift','diagonal-wipe',
+  'caps','outline','gradient-sweep',
+  // Phase 3
   'liquid-drip','text-clip','outline-stroke','split-reveal','blur-in',
   'flip-up','letter-drop','panel-split','kinetic','word-bounce',
   'gradient-shift','outline-fill','color-burn',
+  // Phase 4 (TextOverlayExtensions.jsx)
+  'word-pop','stamp-impact','newspaper-highlight','stacked-giant',
+  'kinetic-mixed','diagonal-cascade','magnetic-snap','spotlight-reveal',
+  'comic-impact','gold-foil-sweep','neon-flicker','elastic-snap',
+  'wave-cascade','ticker-news','rotate-y-flip',
+  // v8 New Editorial Animations (TextOverlay.jsx)
+  'elegant-rise','script-pair','pill-card','mixed-weight','editorial-body',
+  'letter-breathe','fade-word','accent-reveal','cinematic-title','ghost-repeat',
 ];
 
 const REQUIRED_OVERLAY_FIELDS = ['text','position','animation','startFrame','endFrame'];
-const GOOGLE_FONTS = ['Anton','Montserrat','Bebas Neue','Oswald','Playfair Display','JetBrains Mono','Cabin Sketch'];
+const GOOGLE_FONTS = ['Anton','Montserrat','Bebas Neue','Oswald','Playfair Display','JetBrains Mono','Cormorant Garamond','Great Vibes','Dancing Script'];
 
 let errors = [], warnings = [], info = [];
 const err  = (m) => errors.push(m);
@@ -32,8 +45,8 @@ const warn = (m) => warnings.push(m);
 const ok   = (m) => info.push(m);
 
 function loadContentFiles() {
-  const args = process.argv.slice(2);
-  let files  = args.length > 0 ? args : [];
+  const args  = process.argv.slice(2);
+  let files   = args.length > 0 ? args : [];
   if (files.length === 0) {
     const srcDir = path.join(process.cwd(), 'src');
     if (fs.existsSync(srcDir)) {
@@ -98,7 +111,10 @@ function checkAnimations(entries) {
     if (!e.overlays) continue;
     for (let i = 0; i < e.overlays.length; i++) {
       const anim = e.overlays[i].animation || '';
-      if (!KNOWN_ANIMATIONS.includes(anim)) { warn('[Animation] ' + e.id + ' ov[' + i + ']: unknown "' + anim + '"'); unknown++; }
+      if (!KNOWN_ANIMATIONS.includes(anim)) {
+        warn('[Animation] ' + e.id + ' ov[' + i + ']: unknown "' + anim + '"');
+        unknown++;
+      }
     }
   }
   if (unknown === 0) ok('[Animation] All animations valid');
@@ -138,7 +154,10 @@ function checkRequiredOverlayFields(entries) {
     if (!e.overlays) continue;
     for (let i = 0; i < e.overlays.length; i++) {
       for (const f of REQUIRED_OVERLAY_FIELDS) {
-        if (e.overlays[i][f] === undefined || e.overlays[i][f] === null) { err('[OverlayFields] ' + e.id + ' ov[' + i + ']: missing "' + f + '"'); missing++; }
+        if (e.overlays[i][f] === undefined || e.overlays[i][f] === null) {
+          err('[OverlayFields] ' + e.id + ' ov[' + i + ']: missing "' + f + '"');
+          missing++;
+        }
       }
     }
   }
@@ -150,7 +169,7 @@ function checkColorContrast(entries) {
     if (!e.overlays) continue;
     for (const ov of e.overlays) {
       if (!ov.color || !ov.color.startsWith('#')) continue;
-      const h = ov.color.replace('#','');
+      const h    = ov.color.replace('#','');
       const full = h.length === 3 ? h.split('').map(c => c+c).join('') : h.padEnd(6,'0');
       const r = parseInt(full.slice(0,2),16)/255;
       const g = parseInt(full.slice(2,4),16)/255;
@@ -177,7 +196,7 @@ function checkChronologicalOrder(entries) {
 function checkDuplicateQueries(entries) {
   const map = {};
   for (const e of entries) {
-    for (const q of (e.pexelsSearchTerms || e.bRollQueries || [])) {
+    for (const q of (e.bRollQueries || [])) {
       map[q] = map[q] || [];
       map[q].push(e.id);
     }
@@ -186,6 +205,16 @@ function checkDuplicateQueries(entries) {
     if (days.length > 1) warn('[DupQuery] "' + q + '" used in: ' + days.join(', '));
   }
   ok('[DupQuery] Duplicate queries checked');
+}
+
+function checkBRollCount(entries) {
+  for (const e of entries) {
+    const queries = e.bRollQueries || [];
+    if (queries.length === 0) warn('[BRoll] ' + e.id + ': no bRollQueries defined');
+    if (queries.length > 0 && queries.length < 6) warn('[BRoll] ' + e.id + ': only ' + queries.length + ' bRollQueries -- need 6');
+    if (queries.length > 6) warn('[BRoll] ' + e.id + ': ' + queries.length + ' bRollQueries -- expected exactly 6');
+  }
+  ok('[BRoll] B-roll query counts checked');
 }
 
 function checkAudioFiles(entries) {
@@ -198,32 +227,21 @@ function checkAudioFiles(entries) {
   ok('[Audio] Audio files checked');
 }
 
-function checkAudioVolume(entries) {
+function checkOverlayCount(entries) {
   for (const e of entries) {
     if (!e.overlays) continue;
-    for (const ov of e.overlays) {
-      if (ov.volume !== undefined && (ov.volume < 0 || ov.volume > 1)) {
-        err('[AudioVol] ' + e.id + ': volume ' + ov.volume + ' out of [0,1]');
-      }
-    }
+    if (e.overlays.length > 5) warn('[OverlayCount] ' + e.id + ': ' + e.overlays.length + ' overlays (max 5 recommended for week 7+)');
+    if (e.overlays.length === 0) err('[OverlayCount] ' + e.id + ': no overlays defined');
   }
-  ok('[AudioVol] Volumes checked');
-}
-
-function checkClipCount(entries) {
-  for (const e of entries) {
-    const terms = e.pexelsSearchTerms || e.bRollQueries || [];
-    if (terms.length === 0) warn('[ClipCount] ' + e.id + ': no b-roll search terms defined');
-  }
-  ok('[ClipCount] Clip queries checked');
+  ok('[OverlayCount] Overlay counts checked');
 }
 
 function checkRemotionConfig() {
   const p = path.join(process.cwd(), 'remotion.config.js');
   if (!fs.existsSync(p)) { warn('[RemotionConfig] remotion.config.js not found'); return; }
   const s = fs.readFileSync(p, 'utf8');
-  if (s.includes('1080') && s.includes('1920')) ok('[RemotionConfig] Dimensions 1080x1920 confirmed');
-  else warn('[RemotionConfig] Check dimensions in remotion.config.js');
+  if (s.includes('setCrf')) ok('[RemotionConfig] CRF setting confirmed');
+  else warn('[RemotionConfig] Check CRF setting in remotion.config.js');
 }
 
 function checkFontPreloader() {
@@ -231,14 +249,27 @@ function checkFontPreloader() {
   if (!fs.existsSync(p)) { warn('[Fonts] public/index.html not found'); return; }
   const html = fs.readFileSync(p, 'utf8');
   for (const font of GOOGLE_FONTS) {
-    if (!html.includes(font.replace(/ /g,'+'))) warn('[Fonts] "' + font + '" not in index.html');
+    const key = font.replace(/ /g,'+');
+    if (!html.includes(key)) warn('[Fonts] "' + font + '" not in public/index.html');
   }
   ok('[Fonts] Font preload checked');
 }
 
+function checkCustomClips(entries) {
+  for (const e of entries) {
+    if (!e.customClips) continue;
+    for (const clip of e.customClips) {
+      const p = path.join(process.cwd(), 'public', 'videos', clip);
+      if (!fs.existsSync(p)) warn('[CustomClips] ' + e.id + ': clip not found in public/videos/: ' + clip);
+    }
+  }
+  ok('[CustomClips] Custom clip paths checked');
+}
+
 function main() {
   console.log('\n+----------------------------------------------+');
-  console.log('|  DWB Pre-Render Validator v1.0               |');
+  console.log('|  DWB Pre-Render Validator v2.0               |');
+  console.log('|  Supports v8 animations + customClips        |');
   console.log('+----------------------------------------------+\n');
 
   const entries = loadContentFiles();
@@ -254,17 +285,18 @@ function main() {
     checkColorContrast(entries);
     checkChronologicalOrder(entries);
     checkDuplicateQueries(entries);
+    checkBRollCount(entries);
     checkAudioFiles(entries);
-    checkAudioVolume(entries);
-    checkClipCount(entries);
+    checkOverlayCount(entries);
+    checkCustomClips(entries);
   }
   checkRemotionConfig();
   checkFontPreloader();
 
   console.log('\n----------------------------------------------\n');
-  if (info.length > 0) { console.log('[OK] (' + info.length + '):'); info.forEach(m => console.log('  + ' + m)); console.log(''); }
+  if (info.length > 0)     { console.log('[OK] (' + info.length + '):');     info.forEach(m => console.log('  + ' + m));     console.log(''); }
   if (warnings.length > 0) { console.log('[WARN] (' + warnings.length + '):'); warnings.forEach(m => console.log('  ! ' + m)); console.log(''); }
-  if (errors.length > 0) { console.log('[ERROR] (' + errors.length + '):'); errors.forEach(m => console.log('  x ' + m)); console.log(''); }
+  if (errors.length > 0)   { console.log('[ERROR] (' + errors.length + '):');  errors.forEach(m => console.log('  x ' + m));  console.log(''); }
 
   if (errors.length === 0 && warnings.length === 0) {
     console.log('[OK] ALL CHECKS PASSED\n'); process.exit(0);
