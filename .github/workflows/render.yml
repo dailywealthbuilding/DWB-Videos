@@ -447,6 +447,17 @@ jobs:
 
       # =========================================================================
       # DOWNLOAD BACKGROUND VIDEOS
+      # PRIORITY ORDER:
+      #   1. Personal Library (any .mp4 in public/videos/ NOT matching dayXX_clipY.mp4)
+      #      -- If 6+ personal clips exist, 6 are picked RANDOMLY per day. No API calls.
+      #   2. API download from Pixabay + Pexels
+      #   3. KenBurns photo fallback (Unsplash)
+      #   4. Dark placeholder
+      #
+      # HOW TO USE PERSONAL LIBRARY:
+      #   Just upload your phone videos to public/videos/ in GitHub.
+      #   ANY filename works. No renaming. No editing content files.
+      #   The pipeline detects them automatically and picks 6 randomly per day.
       # =========================================================================
       - name: Download background videos (6 clips per day)
         env:
@@ -461,18 +472,41 @@ jobs:
           let info={dayAssets:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
           const DA=info.dayAssets||{};if(!Object.keys(DA).length){console.log('No dayAssets -- skipping');process.exit(0);}
 
-          // Check for custom clips first -- skip download if customClips defined
-          let contentEntries=[];
-          const srcDir=path.join(process.cwd(),'src');
-          const contentFiles=fs.existsSync(srcDir)?fs.readdirSync(srcDir).filter(function(f){return f.match(/^week\d+-content\.js$/);}):[]; 
-          for(const file of contentFiles){
-            try{
-              const src=fs.readFileSync(path.join(srcDir,file),'utf8');
-              const dm=src.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);
-              const nm=src.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);
-              const arr=dm?dm[1]:(nm?nm[1]:null);
-              if(arr)contentEntries=contentEntries.concat(eval(arr));
-            }catch(e){}
+          // =====================================================================
+          // PERSONAL LIBRARY DETECTION
+          // Scans public/videos/ for any file that is NOT a pipeline-generated
+          // clip (i.e. not matching dayXX_clipY.mp4 pattern).
+          // These are your uploaded phone videos.
+          // =====================================================================
+          const PIPELINE_CLIP_PATTERN = /^day\d+_clip\d+\.mp4$/;
+          const videoDir = 'public/videos';
+          const allFiles = fs.existsSync(videoDir) ? fs.readdirSync(videoDir) : [];
+          const personalLibrary = allFiles.filter(function(f) {
+            if (!f.toLowerCase().endsWith('.mp4')) return false;
+            if (PIPELINE_CLIP_PATTERN.test(f)) return false;
+            const fullPath = path.join(videoDir, f);
+            const sz = fs.statSync(fullPath).size;
+            return sz > 100000; // must be at least 100KB -- real video not a placeholder
+          });
+
+          if (personalLibrary.length > 0) {
+            console.log('\n=== PERSONAL LIBRARY DETECTED: ' + personalLibrary.length + ' clips ===');
+            personalLibrary.forEach(function(f) { console.log('  + ' + f); });
+          } else {
+            console.log('\n=== No personal library clips found -- will use API downloads ===');
+          }
+
+          // Seeded shuffle so same day always gets same clips in a single run
+          // but different days get different selections
+          function shuffleForDay(arr, daySeed) {
+            const copy = arr.slice();
+            let seed = daySeed;
+            for (let i = copy.length - 1; i > 0; i--) {
+              seed = (seed * 1664525 + 1013904223) & 0xffffffff;
+              const j = Math.abs(seed) % (i + 1);
+              const tmp = copy[i]; copy[i] = copy[j]; copy[j] = tmp;
+            }
+            return copy;
           }
 
           function score(c){let s=0;const w=c.width||0,h=c.height||0;if(w>=1080&&h>=1920)s+=50;else if(h>=w)s+=30;else if(w>=1920)s+=20;else s+=5;if(h>w)s+=20;const d=c.duration||0;if(d>=8&&d<=15)s+=15;else if(d>=5)s+=8;else if(d>0)s+=3;const sz=c.fileSize||0;if(sz>5000000)s+=15;else if(sz>1000000)s+=8;return s;}
@@ -484,84 +518,99 @@ jobs:
           async function makeKenBurns(q,dest){const tmp=dest+'_tmp.jpg';try{const cq=encodeURIComponent(q.replace(/vertical/gi,'').trim());let imgUrl='https://source.unsplash.com/1080x1920/?'+cq;if(UNS){try{const ud=await fetchJSON('https://api.unsplash.com/search/photos?query='+cq+'&per_page=3&orientation=portrait&client_id='+UNS);const r=(ud.results||[])[0];if(r)imgUrl=r.urls.regular||r.urls.small;}catch(e){}}await dlFile(imgUrl,tmp);if(!fs.existsSync(tmp)||fs.statSync(tmp).size<10000)throw new Error('img too small');const{execSync}=require('child_process');execSync('ffmpeg -loop 1 -i "'+tmp+'" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -t 10 -c:v libx264 -pix_fmt yuv420p -y "'+dest+'" 2>/dev/null',{stdio:'pipe'});if(fs.existsSync(tmp))fs.unlinkSync(tmp);const vs=fs.existsSync(dest)?fs.statSync(dest).size:0;if(vs<10000)throw new Error('kb too small');console.log('KenBurns OK: '+path.basename(dest));return true;}catch(e){console.log('KenBurns fail: '+e.message);if(fs.existsSync(tmp))fs.unlinkSync(tmp);return false;}}
 
           (async function(){
-            let dl=0,skip=0,fail=0,kb=0;
+            let dl=0,skip=0,fail=0,kb=0,personal=0;
+
             for(const day of Object.keys(DA)){
               const assets=DA[day];
-              console.log('\n=== '+day+' ('+assets.length+' clips expected) ===');
+              const dayNum=parseInt(day.replace('day',''))||50;
+              console.log('\n=== '+day+' ('+assets.length+' clips needed) ===');
 
-              // Check if this day has customClips defined
-              const dayEntry=contentEntries.find(function(e){return e.id===day;});
-              if(dayEntry&&dayEntry.customClips&&dayEntry.customClips.length>0){
-                console.log(day+': customClips defined -- skipping API download');
-                // Verify each custom clip exists
-                for(const clip of dayEntry.customClips){
-                  const clipPath='public/videos/'+clip;
-                  if(fs.existsSync(clipPath)){console.log('CUSTOM OK: '+clip);}
-                  else{console.log('CUSTOM MISSING: '+clip+' -- not found in public/videos/');}
+              // ==================================================================
+              // PRIORITY 1: PERSONAL LIBRARY
+              // If 6+ personal clips exist, randomly pick 6 and copy them as
+              // the day's pipeline clips. Zero API calls needed.
+              // Different days get different random selections (seeded by day number).
+              // ==================================================================
+              if (personalLibrary.length >= 6) {
+                const shuffled = shuffleForDay(personalLibrary, dayNum);
+                const picked   = shuffled.slice(0, 6);
+                console.log(day + ': Using personal library -- picked:');
+                let allGood = true;
+                for (let i = 0; i < picked.length; i++) {
+                  const src  = path.join(videoDir, picked[i]);
+                  const dest = path.join(videoDir, day + '_clip' + (i+1) + '.mp4');
+                  if (fs.existsSync(dest) && fs.statSync(dest).size > 50000) {
+                    console.log('  SKIP (already exists): ' + path.basename(dest));
+                    skip++;
+                    continue;
+                  }
+                  try {
+                    fs.copyFileSync(src, dest);
+                    console.log('  COPIED: ' + picked[i] + ' -> ' + path.basename(dest));
+                    personal++;
+                  } catch(e) {
+                    console.log('  COPY FAILED: ' + picked[i] + ': ' + e.message);
+                    allGood = false;
+                  }
                 }
-                continue;
+                if (allGood) continue; // all 6 personal clips assigned -- move to next day
+              } else if (personalLibrary.length > 0 && personalLibrary.length < 6) {
+                // Partial library -- use what we have, fill rest with API
+                console.log(day + ': Partial personal library (' + personalLibrary.length + ' clips) -- mixing with API');
+                const shuffled = shuffleForDay(personalLibrary, dayNum);
+                for (let i = 0; i < Math.min(shuffled.length, assets.length); i++) {
+                  const src  = path.join(videoDir, shuffled[i % shuffled.length]);
+                  const dest = path.join(videoDir, day + '_clip' + (i+1) + '.mp4');
+                  if (!fs.existsSync(dest) || fs.statSync(dest).size < 50000) {
+                    try { fs.copyFileSync(src, dest); personal++; console.log('  PERSONAL: ' + shuffled[i % shuffled.length]); } catch(e) {}
+                  }
+                }
               }
 
+              // ==================================================================
+              // PRIORITY 2: API DOWNLOAD (Pixabay + Pexels)
+              // Only runs if personal library has fewer than 6 clips.
+              // ==================================================================
               for(const item of assets){
                 const dest='public/videos/'+item.id+'.mp4';
                 if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){console.log('SKIP: '+item.id);skip++;continue;}
                 if(fs.existsSync(dest))fs.unlinkSync(dest);
-                console.log('Fetching: '+item.id+' | "'+item.q+'"');
+                console.log('API fetch: '+item.id+' | "'+item.q+'"');
                 const[pc,xc]=await Promise.all([fetchPixabay(item.q),fetchPexels(item.q)]);
                 const all=pc.concat(xc);
                 all.forEach(function(c){c.score=score(c);});
                 all.sort(function(a,b){return b.score-a.score;});
                 let ok=false;
-                for(const clip of all){try{await dlFile(clip.url,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('OK: '+item.id+' from '+clip.source+' score='+clip.score);dl++;ok=true;break;}if(fs.existsSync(dest))fs.unlinkSync(dest);}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);}}
+                for(const clip of all){try{await dlFile(clip.url,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('OK: '+item.id+' from '+clip.source);dl++;ok=true;break;}if(fs.existsSync(dest))fs.unlinkSync(dest);}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);}}
+
+                // PRIORITY 3: KenBurns photo fallback
                 if(!ok){ok=await makeKenBurns(item.q,dest);if(ok)kb++;}
+
+                // PRIORITY 4: Dark placeholder
                 if(!ok){try{const{execSync}=require('child_process');execSync('ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "'+dest+'" -y -loglevel error',{stdio:'pipe'});if(fs.existsSync(dest)&&fs.statSync(dest).size>1000){console.log('Placeholder: '+item.id);dl++;}else{console.log('FAIL: '+item.id);fail++;}}catch(fe){console.log('FAIL: '+item.id);fail++;}}
                 await sleep(300);
               }
             }
-            console.log('\n--- Video Summary ---\nDownloaded: '+dl+' | Cached: '+skip+' | KenBurns: '+kb+' | Failed: '+fail);
+            console.log('\n--- Video Summary ---');
+            console.log('Personal library: '+personal+' | API downloaded: '+dl+' | Cached: '+skip+' | KenBurns: '+kb+' | Failed: '+fail);
+            if(personal>0) console.log('Your phone videos were used for this render.');
           })();
           VIDEOEOF
 
       - name: Verify clips and create placeholders for any missing
         run: |
           node << 'VERIFYEOF'
-          const fs=require('fs'),path=require('path'),{execSync}=require('child_process');
+          const fs=require('fs'),{execSync}=require('child_process');
           let info={};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){process.exit(0);}
-
-          // Load content files to find customClips
-          let contentEntries=[];
-          const srcDir=path.join(process.cwd(),'src');
-          const contentFiles=fs.existsSync(srcDir)?fs.readdirSync(srcDir).filter(function(f){return f.match(/^week\d+-content\.js$/);}):[]; 
-          for(const file of contentFiles){
-            try{
-              const src=fs.readFileSync(path.join(srcDir,file),'utf8');
-              const dm=src.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);
-              const nm=src.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);
-              const arr=dm?dm[1]:(nm?nm[1]:null);
-              if(arr)contentEntries=contentEntries.concat(eval(arr));
-            }catch(e){}
-          }
-
           const allAssets=Object.values(info.dayAssets||{}).flat();
-          let created=0,ok=0,customOk=0;
-
-          // Check custom clips
-          for(const entry of contentEntries){
-            if(!entry.customClips||!entry.customClips.length)continue;
-            for(const clip of entry.customClips){
-              const dest='public/videos/'+clip;
-              if(fs.existsSync(dest)&&fs.statSync(dest).size>5000){customOk++;console.log('CUSTOM CLIP OK: '+clip);}
-              else{console.log('CUSTOM CLIP MISSING: '+clip);}
-            }
-          }
-
+          let created=0,ok=0;
           for(const item of allAssets){
             const dest='public/videos/'+item.id+'.mp4';
             if(fs.existsSync(dest)&&fs.statSync(dest).size>5000){ok++;continue;}
             console.log('Creating placeholder: '+dest);
             try{execSync('ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "'+dest+'" -y -loglevel error');created++;}catch(e){console.log('FAILED: '+dest);}
           }
-          console.log('Clips OK: '+ok+' | Custom: '+customOk+' | Placeholders: '+created);
+          console.log('Clips OK: '+ok+' | Placeholders created: '+created);
           VERIFYEOF
           echo "=== Clip inventory ==="
           find public/videos -name "*.mp4" -size +1k 2>/dev/null | sort | head -30
