@@ -2,284 +2,64 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Daily Wealth Building — Finance Education Channel</title>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800;900&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DWB -- 90 Day Challenge Scoreboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#06080f;--bg2:#0c1220;--sf:#101828;
-  --tx:#e8f0fe;--td:#3d5a80;--tm:#6b8cba;
-  --or:#ff6b35;--teal:#00d4aa;--gold:#f59e0b;
-  --bdr:rgba(232,240,254,.07);
-}
-html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--tx);font-family:'Syne',sans-serif;overflow-x:hidden}
-
-/* NOISE TEXTURE */
-body::before{content:'';position:fixed;inset:0;
-background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
-pointer-events:none;z-index:0;opacity:.4}
-
-/* HEADER */
-header{position:relative;z-index:10;border-bottom:1px solid var(--bdr);
-background:rgba(6,8,15,.9);backdrop-filter:blur(12px);
-padding:0 20px;height:56px;display:flex;align-items:center;justify-content:space-between;
-position:sticky;top:0}
-.logo{font-size:13px;font-weight:900;letter-spacing:.12em;color:var(--tx)}
-.logo span{color:var(--or)}
-.nav-links{display:flex;gap:20px}
-.nav-links a{font-family:'Fira Code',monospace;font-size:9px;color:var(--td);
-text-decoration:none;letter-spacing:.12em;transition:color .2s}
-.nav-links a:hover{color:var(--teal)}
-
-/* HERO */
-.hero{position:relative;z-index:1;padding:60px 20px 50px;text-align:center;
-background:radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255,107,53,.06) 0%, transparent 70%)}
-.hero-badge{display:inline-block;font-family:'Fira Code',monospace;font-size:8px;
-letter-spacing:.2em;color:var(--or);border:1px solid rgba(255,107,53,.3);
-background:rgba(255,107,53,.06);padding:4px 14px;margin-bottom:20px}
-.hero h1{font-size:clamp(32px,8vw,64px);font-weight:900;line-height:1.05;
-letter-spacing:-.02em;margin-bottom:16px}
-.hero h1 span{color:var(--or)}
-.hero p{font-family:'Fira Code',monospace;font-size:11px;color:var(--tm);
-max-width:460px;margin:0 auto 30px;line-height:1.8;letter-spacing:.02em}
-.hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
-.btn-primary{background:var(--or);color:#fff;font-family:'Fira Code',monospace;
-font-size:9px;font-weight:700;letter-spacing:.15em;padding:12px 28px;
-text-decoration:none;transition:opacity .2s}
-.btn-primary:hover{opacity:.85}
-.btn-secondary{border:1px solid var(--bdr);color:var(--tm);font-family:'Fira Code',monospace;
-font-size:9px;letter-spacing:.15em;padding:12px 28px;text-decoration:none;transition:all .2s}
-.btn-secondary:hover{border-color:var(--teal);color:var(--teal)}
-
-/* STATS BAR */
-.stats-bar{position:relative;z-index:1;border-top:1px solid var(--bdr);
-border-bottom:1px solid var(--bdr);background:var(--bg2);
-display:grid;grid-template-columns:repeat(4,1fr)}
-.stat{padding:18px 12px;text-align:center;border-right:1px solid var(--bdr)}
-.stat:last-child{border-right:none}
-.stat-num{font-size:20px;font-weight:900;color:var(--tx);margin-bottom:2px}
-.stat-num.or{color:var(--or)}
-.stat-num.teal{color:var(--teal)}
-.stat-num.gold{color:var(--gold)}
-.stat-label{font-family:'Fira Code',monospace;font-size:7px;color:var(--td);letter-spacing:.12em}
-
-/* SECTION */
-.section{position:relative;z-index:1;padding:48px 20px}
-.sec-head{display:flex;align-items:center;gap:12px;margin-bottom:28px}
-.sec-tag{font-family:'Fira Code',monospace;font-size:7px;letter-spacing:.2em;
-color:var(--or);background:rgba(255,107,53,.08);border:1px solid rgba(255,107,53,.2);
-padding:3px 10px}
-.sec-title{font-size:20px;font-weight:800;color:var(--tx)}
-.sec-line{flex:1;height:1px;background:var(--bdr)}
-
-/* TIKTOK EMBED SECTION */
-.tiktok-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:20px}
-.tiktok-card{background:var(--sf);border:1px solid var(--bdr);overflow:hidden;transition:border-color .2s}
-.tiktok-card:hover{border-color:rgba(255,107,53,.3)}
-.tiktok-card blockquote{margin:0}
-
-/* EMBED PLACEHOLDER (shown when TikTok JS hasn't loaded) */
-.tt-placeholder{aspect-ratio:9/16;background:var(--bg2);display:flex;
-flex-direction:column;align-items:center;justify-content:center;gap:8px;
-border-bottom:1px solid var(--bdr)}
-.tt-placeholder svg{opacity:.3}
-.tt-placeholder p{font-family:'Fira Code',monospace;font-size:8px;color:var(--td)}
-
-/* VIDEO META */
-.vid-meta{padding:12px}
-.vid-title{font-size:12px;font-weight:700;color:var(--tx);margin-bottom:4px;line-height:1.4}
-.vid-stats{display:flex;gap:12px}
-.vid-stat{font-family:'Fira Code',monospace;font-size:8px;color:var(--td)}
-.vid-stat span{color:var(--teal)}
-
-/* ABOUT SECTION */
-.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:500px){.about-grid{grid-template-columns:1fr}}
-.about-card{background:var(--sf);border:1px solid var(--bdr);padding:16px}
-.about-card-icon{font-size:20px;margin-bottom:8px}
-.about-card-title{font-size:13px;font-weight:700;color:var(--tx);margin-bottom:6px}
-.about-card-desc{font-family:'Fira Code',monospace;font-size:9px;color:var(--tm);line-height:1.7}
-
-/* PLATFORM STRIP */
-.platform-strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
-.plat{font-family:'Fira Code',monospace;font-size:7px;letter-spacing:.1em;
-padding:4px 12px;border:1px solid var(--bdr);color:var(--td)}
-.plat.live{border-color:rgba(0,212,170,.3);color:var(--teal);background:rgba(0,212,170,.06)}
-.plat.soon{border-color:rgba(255,107,53,.2);color:var(--or)}
-
-/* FOOTER */
-footer{position:relative;z-index:1;border-top:1px solid var(--bdr);
-background:var(--bg2);padding:24px 20px;
-display:flex;align-items:center;justify-content:space-between;flex-wrap:gap;gap:12px}
-.footer-logo{font-size:11px;font-weight:900;letter-spacing:.1em}
-.footer-logo span{color:var(--or)}
-.footer-links{display:flex;gap:16px;flex-wrap:wrap}
-.footer-links a{font-family:'Fira Code',monospace;font-size:8px;color:var(--td);
-text-decoration:none;letter-spacing:.1em;transition:color .2s}
-.footer-links a:hover{color:var(--teal)}
-.footer-copy{font-family:'Fira Code',monospace;font-size:7px;color:var(--td);letter-spacing:.1em}
-
-/* GLOW ACCENTS */
-.glow-or{position:absolute;width:300px;height:300px;border-radius:50%;
-background:radial-gradient(circle,rgba(255,107,53,.08) 0%,transparent 70%);
-pointer-events:none}
-
-@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-.hero>*{animation:fadeUp .6s ease both}
-.hero-badge{animation-delay:.1s}
-.hero h1{animation-delay:.2s}
-.hero p{animation-delay:.3s}
-.hero-btns{animation-delay:.4s}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#050507;color:#e8e8f0;font-family:"JetBrains Mono",monospace;min-height:100vh;padding:24px 16px 48px}
+.container{max-width:680px;margin:0 auto}
+.header{text-align:center;margin-bottom:28px;padding:28px 20px;background:#0a0a0c;border:1px solid rgba(202,255,0,0.15)}
+.day-badge{font-size:10px;letter-spacing:4px;color:#CAFF00;margin-bottom:8px}
+.title{font-family:Anton,sans-serif;font-size:clamp(32px,7vw,56px);letter-spacing:2px;color:#fff;margin-bottom:6px}
+.subtitle{font-size:9px;color:rgba(255,255,255,0.35);letter-spacing:3px}
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px}
+@media(min-width:480px){.cards{grid-template-columns:repeat(4,1fr)}}
+.card{background:#0a0a0c;border:1px solid rgba(255,255,255,0.07);padding:14px;text-align:center}
+.card-num{font-family:Anton,sans-serif;font-size:32px;color:#CAFF00;line-height:1}
+.card-label{font-size:8px;color:rgba(255,255,255,0.4);letter-spacing:2px;margin-top:4px}
+.section{background:#0a0a0c;border:1px solid rgba(255,255,255,0.07);padding:18px;margin-bottom:12px}
+.section-title{font-size:9px;color:rgba(255,255,255,0.35);letter-spacing:2px;margin-bottom:12px}
+.bar{height:6px;background:rgba(255,255,255,0.08);margin-bottom:6px}
+.bar-fill{height:100%;background:#CAFF00}
+.bar-label-row{display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.4);margin-bottom:12px}
+.bars{display:flex;align-items:flex-end;gap:5px;height:80px}
+.bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+.bar-v{width:100%;background:#CAFF00;border-radius:2px 2px 0 0;min-height:2px}
+.bar-label{font-size:7px;color:rgba(255,255,255,0.3);text-align:center}
+.ms-list{display:flex;flex-wrap:wrap;gap:6px}
+.ms-done{background:rgba(0,255,136,0.1);color:#00ff88;border:1px solid rgba(0,255,136,0.2);padding:4px 10px;font-size:9px;font-weight:700}
+.ms-next{background:rgba(202,255,0,0.1);color:#CAFF00;border:1px solid rgba(202,255,0,0.3);padding:4px 10px;font-size:9px;font-weight:700}
+.ms-future{background:#0a0a0c;color:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.07);padding:4px 10px;font-size:9px}
+.live{display:inline-block;width:5px;height:5px;border-radius:50%;background:#00ff88;margin-right:5px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.footer{text-align:center;font-size:8px;color:rgba(255,255,255,0.2);margin-top:20px;letter-spacing:2px}
 </style>
 </head>
 <body>
-
-<!-- HEADER -->
-<header>
-  <div class="logo">DWB<span>.</span></div>
-  <nav class="nav-links">
-    <a href="#videos">VIDEOS</a>
-    <a href="#about">ABOUT</a>
-    <a href="tos.html">TERMS</a>
-    <a href="privacy.html">PRIVACY</a>
-  </nav>
-</header>
-
-<!-- HERO -->
-<section class="hero">
-  <div class="glow-or" style="top:-100px;left:50%;transform:translateX(-50%)"></div>
-  <div class="hero-badge">DAY 58/90 · $0 BUDGET · FACELESS FINANCE</div>
-  <h1>Build Wealth<br><span>Daily.</span></h1>
-  <p>Automated personal finance education — 7 videos every week, published across 9 platforms. No camera. No editor. Just code and discipline.</p>
-  <div class="hero-btns">
-    <a href="https://www.tiktok.com/@dailywealthbuilding" target="_blank" class="btn-primary">FOLLOW ON TIKTOK</a>
-    <a href="https://www.youtube.com/@DailyWealthBuilding" target="_blank" class="btn-secondary">YOUTUBE CHANNEL</a>
-  </div>
-</section>
-
-<!-- STATS -->
-<div class="stats-bar">
-  <div class="stat">
-    <div class="stat-num or">7</div>
-    <div class="stat-label">VIDEOS/WEEK</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num teal">9</div>
-    <div class="stat-label">PLATFORMS</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num gold">90</div>
-    <div class="stat-label">DAY CHALLENGE</div>
-  </div>
-  <div class="stat">
-    <div class="stat-num">$0</div>
-    <div class="stat-label">BUDGET</div>
-  </div>
+<div class="container">
+<div class="header">
+<div class="day-badge"><span class="live"></span>LIVE -- Updated 2026-04-18</div>
+<div class="title">DAY 67 <span style="color:#CAFF00">/ 90</span></div>
+<div class="subtitle">@DailyWealthBuilding -- 90-Day Public Challenge</div>
 </div>
-
-<!-- TIKTOK VIDEOS -->
-<section class="section" id="videos">
-  <div class="sec-head">
-    <div class="sec-tag">LATEST CONTENT</div>
-    <div class="sec-title">TikTok Videos</div>
-    <div class="sec-line"></div>
-  </div>
-
-  <div class="tiktok-grid">
-
-    <!-- EMBED 1 -->
-    <div class="tiktok-card">
-      <blockquote class="tiktok-embed"
-        cite="https://www.tiktok.com/@dailywealthbuilding"
-        data-unique-id="dailywealthbuilding"
-        data-embed-type="creator"
-        style="max-width:100%;min-width:288px">
-        <section>
-          <a target="_blank" href="https://www.tiktok.com/@dailywealthbuilding">@dailywealthbuilding</a>
-        </section>
-      </blockquote>
-    </div>
-
-    <!-- ABOUT CARD alongside embed -->
-    <div style="display:flex;flex-direction:column;gap:12px">
-      <div class="about-card">
-        <div class="about-card-icon">📈</div>
-        <div class="about-card-title">What We Publish</div>
-        <div class="about-card-desc">Daily short-form finance videos covering budgeting, investing, side hustles, and wealth-building strategies — delivered automatically every week.</div>
-      </div>
-      <div class="about-card">
-        <div class="about-card-icon">⚙️</div>
-        <div class="about-card-title">How It Works</div>
-        <div class="about-card-desc">Videos are rendered by Remotion, scored by AI, and distributed via API to TikTok, YouTube, Instagram, and more — fully automated, $0 cost.</div>
-      </div>
-      <div class="about-card">
-        <div class="about-card-icon">🎯</div>
-        <div class="about-card-title">The Mission</div>
-        <div class="about-card-desc">Make personal finance education accessible to everyone. No jargon. No gimmicks. Just actionable daily content that builds real wealth habits.</div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- PLATFORM STATUS -->
-  <div class="platform-strip">
-    <div class="plat live">● YOUTUBE LIVE</div>
-    <div class="plat soon">◐ TIKTOK REVIEW</div>
-    <div class="plat soon">◐ INSTAGRAM SOON</div>
-    <div class="plat soon">◐ FACEBOOK SOON</div>
-    <div class="plat">○ REDDIT PENDING</div>
-    <div class="plat">○ LINKEDIN SOON</div>
-    <div class="plat">○ PINTEREST SOON</div>
-  </div>
-</section>
-
-<!-- ABOUT -->
-<section class="section" id="about" style="padding-top:0">
-  <div class="sec-head">
-    <div class="sec-tag">THE PIPELINE</div>
-    <div class="sec-title">Built Different</div>
-    <div class="sec-line"></div>
-  </div>
-  <div class="about-grid">
-    <div class="about-card">
-      <div class="about-card-icon">🤖</div>
-      <div class="about-card-title">AI Hook Scoring</div>
-      <div class="about-card-desc">Every video hook is scored 1–10 by Groq llama-3.3-70b before rendering. Weak hooks get rewritten automatically.</div>
-    </div>
-    <div class="about-card">
-      <div class="about-card-icon">🎬</div>
-      <div class="about-card-title">25-Layer Composition</div>
-      <div class="about-card-desc">Each 30-second video has 25 visual layers — cinematic grades, film grain, particles, 51 text animation types.</div>
-    </div>
-    <div class="about-card">
-      <div class="about-card-icon">🔄</div>
-      <div class="about-card-title">Fully Automated</div>
-      <div class="about-card-desc">GitHub Actions triggers every Monday 9AM EAT. Renders 7 videos, uploads to all platforms, sends phone notification. Zero manual work.</div>
-    </div>
-    <div class="about-card">
-      <div class="about-card-icon">🌍</div>
-      <div class="about-card-title">9 Platforms</div>
-      <div class="about-card-desc">One render feeds YouTube, TikTok, Instagram, Facebook, Reddit, LinkedIn, Pinterest, Telegram, and Beehiiv newsletter.</div>
-    </div>
-  </div>
-</section>
-
-<!-- FOOTER -->
-<footer>
-  <div class="footer-logo">DWB<span>.</span> DAILY WEALTH BUILDING</div>
-  <div class="footer-links">
-    <a href="https://www.tiktok.com/@dailywealthbuilding" target="_blank">TIKTOK</a>
-    <a href="https://www.youtube.com/@DailyWealthBuilding" target="_blank">YOUTUBE</a>
-    <a href="tos.html">TERMS OF SERVICE</a>
-    <a href="privacy.html">PRIVACY POLICY</a>
-  </div>
-  <div class="footer-copy">© 2026 DAILY WEALTH BUILDING</div>
-</footer>
-
-<!-- TIKTOK EMBED SCRIPT -->
-<script async src="https://www.tiktok.com/embed.js"></script>
-
+<div class="cards">
+<div class="card"><div class="card-num">67</div><div class="card-label">Day / 90</div></div>
+<div class="card"><div class="card-num">0</div><div class="card-label">Subscribers</div></div>
+<div class="card"><div class="card-num">0</div><div class="card-label">Total Views</div></div>
+<div class="card"><div class="card-num">0</div><div class="card-label">Videos Live</div></div>
+</div>
+<div class="section">
+<div class="section-title">CHALLENGE PROGRESS</div>
+<div class="bar"><div class="bar-fill" style="width:74%"></div></div>
+<div class="bar-label-row"><span>74% complete</span><span>23 days remaining</span></div>
+<div class="section-title">NEXT MILESTONE: 100 SUBS</div>
+<div class="bar"><div class="bar-fill" style="width:0%"></div></div>
+<div class="bar-label-row"><span>0%</span><span>100 to go</span></div>
+</div>
+<div class="section"><div class="section-title">SUBSCRIBER MILESTONES</div><div class="ms-list"><span class="ms-next">NEXT 100</span><span class="ms-future">500</span><span class="ms-future">1,000</span><span class="ms-future">2,500</span><span class="ms-future">5,000</span><span class="ms-future">10,000</span><span class="ms-future">25,000</span><span class="ms-future">50,000</span><span class="ms-future">100,000</span></div></div>
+<div class="footer">Auto-updates daily -- @DailyWealthBuilding -- 90-Day Public Challenge</div>
+</div>
 </body>
 </html>
