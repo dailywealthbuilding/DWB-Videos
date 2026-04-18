@@ -11,7 +11,7 @@
 | Week | override |
 | Days | day37 |
 | Rendered | 0/1 |
-| Run | [#41](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24612741673) |
+| Run | [#42](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24612844943) |
 
 
 
