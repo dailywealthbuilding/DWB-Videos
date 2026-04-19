@@ -1,12 +1,9 @@
 // src/week6-content.js -- DWB Week 6 -- Days 36-42
 // FILE PATH: src/week6-content.js
-// Export: DEFAULT (week 6 uses default export)
-// Active day: day37 (as of April 19, 2026)
-// v9 UPDATE: Clean overlay data, word spacing relies on CSS (no manual spacing in text)
+// IMPORTANT: Uses "export default [" directly -- required by detect script regex
 
-const week6Videos = [
+export default [
 
-  // -- DAY 36 ------------------------------------------------------------------
   {
     id: "day36",
     filename: "day36_final.mp4",
@@ -81,11 +78,10 @@ const week6Videos = [
     ],
     tiktokCaption: "The one rule that separates people who build wealth from those who stay broke forever 💸 Are you doing this? YES or NO 👇 #wealthbuilding #personalfinance #moneyrules #day36of90",
     youtubeTitle: "The One Money Rule Rich People Never Break | Day 36/90 | Daily Wealth Building",
-    youtubeDescription: "Day 36 of 90 -- The single rule that separates wealth builders from everyone else.\n\n→ Why paying yourself first changes everything\n→ How to automate it so willpower is not needed\n→ What percentage to start with\n→ Where to put the money once it is saved\n→ Why most people never start and how to not be them\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #wealthbuilding #personalfinance #savemoney",
+    youtubeDescription: "Day 36 of 90 -- The single rule that separates wealth builders from everyone else.\n\n→ Why paying yourself first changes everything\n→ How to automate it so willpower is not needed\n→ What percentage to start with\n→ Where to put the money once it is saved\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #wealthbuilding #personalfinance #savemoney",
     pinnedComment: "The rule is simple. Pay yourself first, automatically, before you can spend it. Start with 1% if 10% feels impossible. The habit matters more than the amount right now."
   },
 
-  // -- DAY 37 ------------------------------------------------------------------
   {
     id: "day37",
     filename: "day37_final.mp4",
@@ -171,11 +167,10 @@ const week6Videos = [
     ],
     tiktokCaption: "If you're under $1K/month this is why nothing is ever left 😤 What do you know you shouldn't be spending on? Drop it 👇 #budgeting #personalfinance #moneyhacks #day37of90",
     youtubeTitle: "Earning Under $1K Per Month? Stop These Habits First | Day 37/90 | Daily Wealth Building",
-    youtubeDescription: "Day 37 of 90 -- The spending habits that keep low earners stuck and the formula to break out.\n\n→ Why the money always disappears by month end\n→ The 3 categories silently draining your income\n→ Why people who escape low income spent less before earning more\n→ The 7-day expense tracking method that reveals everything\n→ The 3 cuts that free up the most money\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #budgeting #personalfinance #moneyhacks #savemoney",
+    youtubeDescription: "Day 37 of 90 -- The spending habits that keep low earners stuck and the formula to break out.\n\n→ Why the money always disappears by month end\n→ The 3 categories silently draining your income\n→ Why people who escape low income spent less before earning more\n→ The 7-day expense tracking method\n→ The 3 cuts that free up the most money\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #budgeting #personalfinance #moneyhacks #savemoney",
     pinnedComment: "Most people wait to earn more before they start managing money. That is the trap. The habits you build on $1K are the same habits that will scale to $5K. Fix the habit first."
   },
 
-  // -- DAY 38 ------------------------------------------------------------------
   {
     id: "day38",
     filename: "day38_final.mp4",
@@ -248,13 +243,12 @@ const week6Videos = [
         fontSize: 82
       }
     ],
-    tiktokCaption: "Not the ones influencers are paid to promote 🚫 The side hustles that actually made people $500-$2K/month in 90 days or less. Which are you building? 👇 #sidehustle #makemoneyonline #day38of90",
+    tiktokCaption: "Not the ones influencers are paid to promote 🚫 The side hustles that actually paid $500-$2K/month in 90 days. Which are you building? 👇 #sidehustle #makemoneyonline #day38of90",
     youtubeTitle: "The Side Hustle That Actually Pays In 2026 | Day 38/90 | Daily Wealth Building",
     youtubeDescription: "Day 38 of 90 -- The side hustles that realistically pay in 90 days or less with zero hype.\n\n→ Why most popular side hustles fail most people\n→ The 3 categories that consistently work\n→ What faceless content actually requires\n→ Freelance skill stacking from zero\n→ The 90-day sprint framework\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #sidehustle #makemoneyonline #passiveincome #financialfreedom",
-    pinnedComment: "The best side hustle is the one that uses a skill you can develop in 30 days, has a client who needs it today, and does not require you to buy a course first. Start there."
+    pinnedComment: "The best side hustle uses a skill you can develop in 30 days, has a client who needs it today, and does not require you to buy a course first. Start there."
   },
 
-  // -- DAY 39 ------------------------------------------------------------------
   {
     id: "day39",
     filename: "day39_final.mp4",
@@ -283,7 +277,7 @@ const week6Videos = [
         letterSpacing: "0.02em"
       },
       {
-        text: "Inflation is 4-6%\nper year on average.\n\nYour savings account\npays 0.5%.\n\nYou are losing\n3-5% every year.",
+        text: "Inflation is 4-6% per year.\n\nYour savings account\npays 0.5%.\n\nYou are losing\n3-5% every year.",
         font: "Montserrat",
         color: "#FFFFFF",
         stroke: { size: 2, color: "#000000" },
@@ -291,10 +285,10 @@ const week6Videos = [
         startFrame: 90,
         endFrame: 270,
         position: "middle",
-        fontSize: 66
+        fontSize: 68
       },
       {
-        text: "$10,000 sitting in\na savings account\nfor 10 years =\n$10,500.\n\n$10,000 in an index fund\nfor 10 years =\n$21,600.",
+        text: "$10,000 in savings\nfor 10 years = $10,500.\n\n$10,000 in an index fund\nfor 10 years = $21,600.",
         font: "Montserrat",
         color: "#CAFF00",
         stroke: { size: 2, color: "#000000" },
@@ -302,7 +296,7 @@ const week6Videos = [
         startFrame: 270,
         endFrame: 450,
         position: "middle",
-        fontSize: 60
+        fontSize: 64
       },
       {
         text: "The fix:\n\n1. Emergency fund only\n   in savings (3 months)\n2. Everything else\n   in index funds\n3. High-yield savings\n   for short-term goals",
@@ -330,10 +324,9 @@ const week6Videos = [
     tiktokCaption: "Your savings account is working against you and most people have no idea 😬 Still keeping everything in savings? 👇 #savings #investing #inflation #personalfinance #day39of90",
     youtubeTitle: "Why Your Savings Account Is Making You Poorer | Day 39/90 | Daily Wealth Building",
     youtubeDescription: "Day 39 of 90 -- The math that explains why saving money in a bank account is actually losing money.\n\n→ What inflation does to your savings silently\n→ The real number difference over 10 years\n→ Where your emergency fund should live\n→ What to do with money beyond the emergency fund\n→ The index fund explanation for complete beginners\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #savings #investing #inflation #indexfunds",
-    pinnedComment: "Savings accounts are for storing money you need soon. Index funds are for growing money you don't need for 5+ years. The mistake is using a savings account for both."
+    pinnedComment: "Savings accounts are for money you need soon. Index funds are for money you don't need for 5+ years. The mistake is using a savings account for both."
   },
 
-  // -- DAY 40 ------------------------------------------------------------------
   {
     id: "day40",
     filename: "day40_final.mp4",
@@ -362,7 +355,7 @@ const week6Videos = [
         letterSpacing: "0.02em"
       },
       {
-        text: "Bad debt:\nCredit card.\nCar loan.\nBuy now pay later.\n\nIt costs you money\nand buys you nothing.",
+        text: "Bad debt:\nCredit card. Car loan.\nBuy now pay later.\n\nIt costs you money\nand buys you nothing.",
         font: "Montserrat",
         color: "#FF4444",
         stroke: { size: 2, color: "#000000" },
@@ -373,7 +366,7 @@ const week6Videos = [
         fontSize: 68
       },
       {
-        text: "Good debt:\nMortgage on rental property.\nBusiness loan.\nEducation that earns back.\n\nIt makes you money\nwhile you sleep.",
+        text: "Good debt:\nMortgage on rental property.\nBusiness loan.\nEducation that pays back.\n\nIt makes you money\nwhile you sleep.",
         font: "Montserrat",
         color: "#CAFF00",
         stroke: { size: 2, color: "#000000" },
@@ -381,10 +374,10 @@ const week6Videos = [
         startFrame: 270,
         endFrame: 450,
         position: "middle",
-        fontSize: 66
+        fontSize: 64
       },
       {
-        text: "The rich use debt\nto buy assets.\n\nThe broke use debt\nto buy things\nthat lose value.\n\nSame tool.\nOpposite outcome.",
+        text: "The rich use debt\nto buy assets.\n\nThe broke use debt\nto buy things that lose value.\n\nSame tool.\nOpposite outcome.",
         font: "Montserrat",
         color: "#FFFFFF",
         stroke: { size: 2, color: "#000000" },
@@ -412,7 +405,6 @@ const week6Videos = [
     pinnedComment: "The question is not whether you have debt. The question is whether the thing you bought with that debt goes up in value or down. One builds wealth. The other steals it."
   },
 
-  // -- DAY 41 ------------------------------------------------------------------
   {
     id: "day41",
     filename: "day41_final.mp4",
@@ -452,7 +444,7 @@ const week6Videos = [
         fontSize: 68
       },
       {
-        text: "Account 1: Bills only\nRent. Utilities. Phone.\nAuto-debited.\n\nAccount 2: Life money\nFood. Fun. Discretionary.\n\nAccount 3: Future self\nInvestments. Savings.",
+        text: "Account 1: Bills only\nRent. Utilities. Phone.\n\nAccount 2: Life money\nFood. Fun. Daily spending.\n\nAccount 3: Future self\nInvestments. Savings.",
         font: "Montserrat",
         color: "#FFD700",
         stroke: { size: 2, color: "#000000" },
@@ -460,7 +452,7 @@ const week6Videos = [
         startFrame: 270,
         endFrame: 540,
         position: "middle",
-        fontSize: 58
+        fontSize: 60
       },
       {
         text: "On payday:\nTransfer automatically.\nLive only from Account 2.\nNever touch Account 3.",
@@ -485,13 +477,12 @@ const week6Videos = [
         fontSize: 78
       }
     ],
-    tiktokCaption: "This system is why some people never stress about money 🏦 It takes 20 minutes to set up. How many bank accounts do you have right now? Drop the number 👇 #budgeting #moneysystem #personalfinance #day41of90",
+    tiktokCaption: "This system is why some people never stress about money 🏦 Takes 20 minutes to set up. How many bank accounts do you have right now? Drop the number 👇 #budgeting #moneysystem #personalfinance #day41of90",
     youtubeTitle: "The 3-Account System That Ends Living Paycheck To Paycheck | Day 41/90 | Daily Wealth Building",
     youtubeDescription: "Day 41 of 90 -- The bank account structure that makes financial stress nearly impossible.\n\n→ Why one account makes budgeting impossible\n→ The 3-account setup and what goes in each\n→ How to automate the transfers on payday\n→ The rule that keeps Account 3 untouched\n→ Setting this up in 20 minutes today\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #budgeting #moneysystem #personalfinance #savemoney",
-    pinnedComment: "The system is not complicated. Bills account. Life account. Future account. Money goes in, splits automatically, you only spend from life account. The rest is invisible. That is the whole system."
+    pinnedComment: "Bills account. Life account. Future account. Money comes in, splits automatically, you only spend from the life account. The rest is invisible. That is the whole system."
   },
 
-  // -- DAY 42 ------------------------------------------------------------------
   {
     id: "day42",
     filename: "day42_final.mp4",
@@ -508,7 +499,7 @@ const week6Videos = [
     ],
     overlays: [
       {
-        text: "YOU'RE BEING TAXED\nON THINGS YOU\nDON'T EVEN KNOW ABOUT.",
+        text: "YOU'RE BEING TAXED\nON THINGS YOU\nDON'T EVEN KNOW.",
         font: "Anton",
         color: "#FF4444",
         stroke: { size: 3, color: "#000000" },
@@ -516,7 +507,7 @@ const week6Videos = [
         startFrame: 0,
         endFrame: 90,
         position: "middle",
-        fontSize: 80,
+        fontSize: 82,
         letterSpacing: "0.02em"
       },
       {
@@ -528,10 +519,10 @@ const week6Videos = [
         startFrame: 90,
         endFrame: 270,
         position: "middle",
-        fontSize: 66
+        fontSize: 64
       },
       {
-        text: "The convenience tax:\nPaying for delivery.\nPaying for parking.\nPaying for last-minute.\n\nIt adds up to\n$200-$400 per month\nfor most people.",
+        text: "The convenience tax:\nDelivery fees.\nLast-minute prices.\nParking. Late fees.\n\n$200 to $400 extra\nper month for most people.",
         font: "Montserrat",
         color: "#FFD700",
         stroke: { size: 2, color: "#000000" },
@@ -539,10 +530,10 @@ const week6Videos = [
         startFrame: 270,
         endFrame: 450,
         position: "middle",
-        fontSize: 60
+        fontSize: 62
       },
       {
-        text: "The fix:\n\n1. Track hidden fees this month\n2. Cancel unused subscriptions\n3. Plan ahead to avoid\n   convenience charges\n4. Learn one legal tax reduction",
+        text: "The fix:\n\n1. Track hidden fees this month\n2. Cancel unused subscriptions\n3. Plan ahead -- avoid\n   convenience charges\n4. Learn one legal tax reduction",
         font: "Montserrat",
         color: "#CAFF00",
         stroke: { size: 2, color: "#000000" },
@@ -553,7 +544,7 @@ const week6Videos = [
         fontSize: 60
       },
       {
-        text: "Week 6 complete.\nWhich hidden tax\nhits you hardest? 👇",
+        text: "Week 6 done. 42 days.\nWhich hidden tax\nhits you hardest? 👇",
         font: "Anton",
         color: "#CAFF00",
         stroke: { size: 3, color: "#000000" },
@@ -561,7 +552,7 @@ const week6Videos = [
         startFrame: 720,
         endFrame: 900,
         position: "bottom-center",
-        fontSize: 80
+        fontSize: 78
       }
     ],
     tiktokCaption: "There are taxes on your money that nobody taught you to avoid 😤 Which hidden tax is hitting you hardest right now? 👇 #taxes #moneyleaks #personalfinance #day42of90",
@@ -571,5 +562,3 @@ const week6Videos = [
   },
 
 ];
-
-export default week6Videos;
