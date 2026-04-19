@@ -2,20 +2,20 @@
 
 @DailyWealthBuilding | 90-Day Public Affiliate Challenge
 
-![Render](https://img.shields.io/badge/Last_Render-2026-04-18-gold) ![Videos](https://img.shields.io/badge/Videos-1/1-brightgreen)
+![Render](https://img.shields.io/badge/Last_Render-2026-04-19-gold) ![Videos](https://img.shields.io/badge/Videos-1/1-brightgreen)
 
-## Latest -- 2026-04-18
+## Latest -- 2026-04-19
 
 | | |
 |---|---|
 | Week | override |
 | Days | day37 |
 | Rendered | 1/1 |
-| Run | [#43](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24613996528) |
+| Run | [#44](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24621860583) |
 
 ## YouTube Links
 
-- [day37](https://youtu.be/nWR-UfGrw8g)
+- [day37](https://youtu.be/R7843i2VDYA)
 
 ## Pipeline
 
@@ -26,4 +26,4 @@
 - safeTitle() on all ntfy headers -- no emoji crashes
 
 ---
-_Auto-updated 2026-04-18_
+_Auto-updated 2026-04-19_
