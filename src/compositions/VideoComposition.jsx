@@ -1,7 +1,5 @@
-// src/compositions/VideoComposition.jsx -- DWB v9.0
+// src/compositions/VideoComposition.jsx -- DWB v9.1
 // FILE PATH: src/compositions/VideoComposition.jsx
-//
-// v9 UPDATE: Passes overlays to BackgroundVideo so it can sync clips to text timing
 
 import {
   AbsoluteFill,
@@ -10,20 +8,28 @@ import {
   useVideoConfig,
 } from 'remotion';
 
-import { BackgroundVideo }      from '../components/BackgroundVideo.jsx';
-import { TextOverlay }          from '../components/TextOverlay.jsx';
-import { AudioTrack }           from '../components/AudioTrack.jsx';
-import { Particles }            from '../components/Particles.jsx';
-import { SpecialOverlays }      from '../components/SpecialOverlays.jsx';
-import { TextOverlayExtensions } from '../components/TextOverlayExtensions.jsx';
+import { BackgroundVideo }       from '../components/BackgroundVideo.jsx';
+import { TextOverlay }           from '../components/TextOverlay.jsx';
+import { AudioTrack }            from '../components/AudioTrack.jsx';
+import { Particles }             from '../components/Particles.jsx';
+import { SpecialOverlays }       from '../components/SpecialOverlays.jsx';
+import { tryRenderExtension }    from '../components/TextOverlayExtensions.jsx';
 
-// Animation registry -- determines which component handles which animation
+// Extended animation names handled by TextOverlayExtensions
 const EXTENDED_ANIMATIONS = new Set([
   'word-pop','stamp-impact','newspaper-highlight','stacked-giant',
   'kinetic-mixed','diagonal-cascade','magnetic-snap','spotlight-reveal',
   'comic-impact','gold-foil-sweep','neon-flicker','elastic-snap',
   'wave-cascade','ticker-news','rotate-y-flip',
 ]);
+
+// Wrapper that calls tryRenderExtension correctly
+const ExtOverlay = ({ overlay }) => {
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const result = tryRenderExtension(overlay, frame, fps);
+  return result || null;
+};
 
 export const VideoComposition = ({
   videoId        = 'day37',
@@ -34,10 +40,8 @@ export const VideoComposition = ({
   photos,
   photoSpeed,
 }) => {
-  const frame        = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
 
-  // Validate overlays
   const validOverlays = (overlays || []).filter(o =>
     o && o.text && o.animation &&
     typeof o.startFrame === 'number' &&
@@ -49,9 +53,7 @@ export const VideoComposition = ({
   return (
     <AbsoluteFill style={{ background: '#000', overflow: 'hidden' }}>
 
-      {/* 1. BACKGROUND VIDEO
-          Now receives overlays so it can sync clips to overlay timing.
-          Each overlay segment gets its own mood-matched clip. */}
+      {/* 1. BACKGROUND VIDEO */}
       <BackgroundVideo
         videoId={videoId}
         overlays={validOverlays}
@@ -59,20 +61,19 @@ export const VideoComposition = ({
         backgroundMode={backgroundMode}
       />
 
-      {/* 2. PARTICLES (optional ambient effect) */}
+      {/* 2. PARTICLES */}
       <Particles videoId={videoId} />
 
-      {/* 3. TEXT OVERLAYS
-          Each overlay is wrapped in a Sequence so it only renders during its window.
-          Extended animations use TextOverlayExtensions, standard use TextOverlay. */}
+      {/* 3. TEXT OVERLAYS */}
       {validOverlays.map((overlay, i) => {
         const duration = overlay.endFrame - overlay.startFrame;
         if (duration <= 0) return null;
 
-        // The overlay component receives frame relative to its Sequence start
-        const Component = EXTENDED_ANIMATIONS.has(overlay.animation)
-          ? TextOverlayExtensions
-          : TextOverlay;
+        const relOverlay = {
+          ...overlay,
+          startFrame: 0,
+          endFrame:   duration,
+        };
 
         return (
           <Sequence
@@ -80,19 +81,15 @@ export const VideoComposition = ({
             from={overlay.startFrame}
             durationInFrames={duration}
           >
-            <Component
-              overlay={{
-                ...overlay,
-                // Make endFrame/startFrame relative to Sequence (starts at 0)
-                startFrame: 0,
-                endFrame:   duration,
-              }}
-            />
+            {EXTENDED_ANIMATIONS.has(overlay.animation)
+              ? <ExtOverlay overlay={relOverlay} />
+              : <TextOverlay overlay={relOverlay} />
+            }
           </Sequence>
         );
       })}
 
-      {/* 4. SPECIAL OVERLAYS: channel name, day counter, progress bar */}
+      {/* 4. SPECIAL OVERLAYS */}
       <SpecialOverlays videoId={videoId} totalFrames={durationInFrames} />
 
       {/* 5. AUDIO */}
