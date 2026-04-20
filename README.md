@@ -11,9 +11,11 @@
 | Week | override |
 | Days | day37 |
 | Rendered | 1/1 |
-| Run | [#55](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24677174895) |
+| Run | [#56](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24678742986) |
 
+## YouTube Links
 
+- [day37](https://youtu.be/3pwj9KoWDkQ)
 
 ## Pipeline
 
