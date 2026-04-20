@@ -65,7 +65,7 @@ export default [
         fontSize: 64
       },
       {
-        text: "Are you paying yourself\nfirst? Drop YES or NO\nbelow. 👇",
+        text: "Are you paying yourself\nfirst? Drop YES or NO\nbelow. ",
         font: "Anton",
         color: "#CAFF00",
         stroke: { size: 3, color: "#000000" },
@@ -76,9 +76,9 @@ export default [
         fontSize: 80
       }
     ],
-    tiktokCaption: "The one rule that separates people who build wealth from those who stay broke forever 💸 Are you doing this? YES or NO 👇 #wealthbuilding #personalfinance #moneyrules #day36of90",
+    tiktokCaption: "The one rule that separates people who build wealth from those who stay broke forever  Are you doing this? YES or NO  #wealthbuilding #personalfinance #moneyrules #day36of90",
     youtubeTitle: "The One Money Rule Rich People Never Break | Day 36/90 | Daily Wealth Building",
-    youtubeDescription: "Day 36 of 90 -- The single rule that separates wealth builders from everyone else.\n\n→ Why paying yourself first changes everything\n→ How to automate it so willpower is not needed\n→ What percentage to start with\n→ Where to put the money once it is saved\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #wealthbuilding #personalfinance #savemoney",
+    youtubeDescription: "Day 36 of 90 -- The single rule that separates wealth builders from everyone else.\n\n-> Why paying yourself first changes everything\n-> How to automate it so willpower is not needed\n-> What percentage to start with\n-> Where to put the money once it is saved\n\n Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #wealthbuilding #personalfinance #savemoney",
     pinnedComment: "The rule is simple. Pay yourself first, automatically, before you can spend it. Start with 1% if 10% feels impossible. The habit matters more than the amount right now."
   },
 
@@ -154,7 +154,7 @@ export default [
         fontSize: 60
       },
       {
-        text: "What do you spend on\nthat you KNOW you\nshouldn't? Drop it 👇",
+        text: "What do you spend on\nthat you KNOW you\nshouldn't? Drop it ",
         font: "Anton",
         color: "#CAFF00",
         stroke: { size: 3, color: "#000000" },
@@ -165,9 +165,9 @@ export default [
         fontSize: 72
       }
     ],
-    tiktokCaption: "If you're under $1K/month this is why nothing is ever left 😤 What do you know you shouldn't be spending on? Drop it 👇 #budgeting #personalfinance #moneyhacks #day37of90",
+    tiktokCaption: "If you're under $1K/month this is why nothing is ever left  What do you know you shouldn't be spending on? Drop it  #budgeting #personalfinance #moneyhacks #day37of90",
     youtubeTitle: "Earning Under $1K Per Month? Stop These Habits First | Day 37/90 | Daily Wealth Building",
-    youtubeDescription: "Day 37 of 90 -- The spending habits that keep low earners stuck and the formula to break out.\n\n→ Why the money always disappears by month end\n→ The 3 categories silently draining your income\n→ Why people who escape low income spent less before earning more\n→ The 7-day expense tracking method\n→ The 3 cuts that free up the most money\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #budgeting #personalfinance #moneyhacks #savemoney",
+    youtubeDescription: "Day 37 of 90 -- The spending habits that keep low earners stuck and the formula to break out.\n\n-> Why the money always disappears by month end\n-> The 3 categories silently draining your income\n-> Why people who escape low income spent less before earning more\n-> The 7-day expense tracking method\n-> The 3 cuts that free up the most money\n\n Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #budgeting #personalfinance #moneyhacks #savemoney",
     pinnedComment: "Most people wait to earn more before they start managing money. That is the trap. The habits you build on $1K are the same habits that will scale to $5K. Fix the habit first."
   },
 
@@ -232,7 +232,7 @@ export default [
         fontSize: 66
       },
       {
-        text: "Which side hustle\nare you building?\nDrop it 👇",
+        text: "Which side hustle\nare you building?\nDrop it ",
         font: "Anton",
         color: "#CAFF00",
         stroke: { size: 3, color: "#000000" },
@@ -243,9 +243,9 @@ export default [
         fontSize: 82
       }
     ],
-    tiktokCaption: "Not the ones influencers are paid to promote 🚫 The side hustles that actually paid $500-$2K/month in 90 days. Which are you building? 👇 #sidehustle #makemoneyonline #day38of90",
+    tiktokCaption: "Not the ones influencers are paid to promote  The side hustles that actually paid $500-$2K/month in 90 days. Which are you building?  #sidehustle #makemoneyonline #day38of90",
     youtubeTitle: "The Side Hustle That Actually Pays In 2026 | Day 38/90 | Daily Wealth Building",
-    youtubeDescription: "Day 38 of 90 -- The side hustles that realistically pay in 90 days or less with zero hype.\n\n→ Why most popular side hustles fail most people\n→ The 3 categories that consistently work\n→ What faceless content actually requires\n→ Freelance skill stacking from zero\n→ The 90-day sprint framework\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #sidehustle #makemoneyonline #passiveincome #financialfreedom",
+    youtubeDescription: "Day 38 of 90 -- The side hustles that realistically pay in 90 days or less with zero hype.\n\n-> Why most popular side hustles fail most people\n-> The 3 categories that consistently work\n-> What faceless content actually requires\n-> Freelance skill stacking from zero\n-> The 90-day sprint framework\n\n Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #sidehustle #makemoneyonline #passiveincome #financialfreedom",
     pinnedComment: "The best side hustle uses a skill you can develop in 30 days, has a client who needs it today, and does not require you to buy a course first. Start there."
   },
 
@@ -310,7 +310,7 @@ export default [
         fontSize: 60
       },
       {
-        text: "Still keeping all\nyour money in\nsavings? 👇",
+        text: "Still keeping all\nyour money in\nsavings? ",
         font: "Anton",
         color: "#CAFF00",
         stroke: { size: 3, color: "#000000" },
@@ -321,9 +321,9 @@ export default [
         fontSize: 84
       }
     ],
-    tiktokCaption: "Your savings account is working against you and most people have no idea 😬 Still keeping everything in savings? 👇 #savings #investing #inflation #personalfinance #day39of90",
+    tiktokCaption: "Your savings account is working against you and most people have no idea  Still keeping everything in savings?  #savings #investing #inflation #personalfinance #day39of90",
     youtubeTitle: "Why Your Savings Account Is Making You Poorer | Day 39/90 | Daily Wealth Building",
-    youtubeDescription: "Day 39 of 90 -- The math that explains why saving money in a bank account is actually losing money.\n\n→ What inflation does to your savings silently\n→ The real number difference over 10 years\n→ Where your emergency fund should live\n→ What to do with money beyond the emergency fund\n→ The index fund explanation for complete beginners\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #savings #investing #inflation #indexfunds",
+    youtubeDescription: "Day 39 of 90 -- The math that explains why saving money in a bank account is actually losing money.\n\n-> What inflation does to your savings silently\n-> The real number difference over 10 years\n-> Where your emergency fund should live\n-> What to do with money beyond the emergency fund\n-> The index fund explanation for complete beginners\n\n Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #savings #investing #inflation #indexfunds",
     pinnedComment: "Savings accounts are for money you need soon. Index funds are for money you don't need for 5+ years. The mistake is using a savings account for both."
   },
 
@@ -388,7 +388,7 @@ export default [
         fontSize: 62
       },
       {
-        text: "Good debt or bad debt?\nWhat kind do\nyou have? 👇",
+        text: "Good debt or bad debt?\nWhat kind do\nyou have? ",
         font: "Anton",
         color: "#CAFF00",
         stroke: { size: 3, color: "#000000" },
@@ -399,9 +399,9 @@ export default [
         fontSize: 80
       }
     ],
-    tiktokCaption: "The difference between debt that builds wealth and debt that destroys it -- nobody teaches this 🤯 What kind do you have? Good or bad? 👇 #debt #wealthbuilding #personalfinance #day40of90",
+    tiktokCaption: "The difference between debt that builds wealth and debt that destroys it -- nobody teaches this  What kind do you have? Good or bad?  #debt #wealthbuilding #personalfinance #day40of90",
     youtubeTitle: "Nobody Talks About The Debt That Actually Builds Wealth | Day 40/90 | Daily Wealth Building",
-    youtubeDescription: "Day 40 of 90 -- The debt distinction that separates wealth builders from debt victims.\n\n→ The exact definition of good vs. bad debt\n→ Why credit cards are almost always bad debt\n→ How a mortgage can build wealth while costing you\n→ Business debt and when it makes sense\n→ The mindset shift that changes how you use borrowed money\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #debt #wealthbuilding #personalfinance #investing",
+    youtubeDescription: "Day 40 of 90 -- The debt distinction that separates wealth builders from debt victims.\n\n-> The exact definition of good vs. bad debt\n-> Why credit cards are almost always bad debt\n-> How a mortgage can build wealth while costing you\n-> Business debt and when it makes sense\n-> The mindset shift that changes how you use borrowed money\n\n Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #debt #wealthbuilding #personalfinance #investing",
     pinnedComment: "The question is not whether you have debt. The question is whether the thing you bought with that debt goes up in value or down. One builds wealth. The other steals it."
   },
 
@@ -466,7 +466,7 @@ export default [
         fontSize: 68
       },
       {
-        text: "How many accounts\ndo you have right now?\nDrop the number 👇",
+        text: "How many accounts\ndo you have right now?\nDrop the number ",
         font: "Anton",
         color: "#CAFF00",
         stroke: { size: 3, color: "#000000" },
@@ -477,9 +477,9 @@ export default [
         fontSize: 78
       }
     ],
-    tiktokCaption: "This system is why some people never stress about money 🏦 Takes 20 minutes to set up. How many bank accounts do you have right now? Drop the number 👇 #budgeting #moneysystem #personalfinance #day41of90",
+    tiktokCaption: "This system is why some people never stress about money  Takes 20 minutes to set up. How many bank accounts do you have right now? Drop the number  #budgeting #moneysystem #personalfinance #day41of90",
     youtubeTitle: "The 3-Account System That Ends Living Paycheck To Paycheck | Day 41/90 | Daily Wealth Building",
-    youtubeDescription: "Day 41 of 90 -- The bank account structure that makes financial stress nearly impossible.\n\n→ Why one account makes budgeting impossible\n→ The 3-account setup and what goes in each\n→ How to automate the transfers on payday\n→ The rule that keeps Account 3 untouched\n→ Setting this up in 20 minutes today\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #budgeting #moneysystem #personalfinance #savemoney",
+    youtubeDescription: "Day 41 of 90 -- The bank account structure that makes financial stress nearly impossible.\n\n-> Why one account makes budgeting impossible\n-> The 3-account setup and what goes in each\n-> How to automate the transfers on payday\n-> The rule that keeps Account 3 untouched\n-> Setting this up in 20 minutes today\n\n Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #budgeting #moneysystem #personalfinance #savemoney",
     pinnedComment: "Bills account. Life account. Future account. Money comes in, splits automatically, you only spend from the life account. The rest is invisible. That is the whole system."
   },
 
@@ -544,7 +544,7 @@ export default [
         fontSize: 60
       },
       {
-        text: "Week 6 done. 42 days.\nWhich hidden tax\nhits you hardest? 👇",
+        text: "Week 6 done. 42 days.\nWhich hidden tax\nhits you hardest? ",
         font: "Anton",
         color: "#CAFF00",
         stroke: { size: 3, color: "#000000" },
@@ -555,9 +555,9 @@ export default [
         fontSize: 78
       }
     ],
-    tiktokCaption: "There are taxes on your money that nobody taught you to avoid 😤 Which hidden tax is hitting you hardest right now? 👇 #taxes #moneyleaks #personalfinance #day42of90",
+    tiktokCaption: "There are taxes on your money that nobody taught you to avoid  Which hidden tax is hitting you hardest right now?  #taxes #moneyleaks #personalfinance #day42of90",
     youtubeTitle: "You Are Being Taxed On Things You Don't Even Know About | Day 42/90 | Daily Wealth Building",
-    youtubeDescription: "Day 42 of 90 -- The five hidden taxes draining your money before you can manage it.\n\n→ The taxes beyond income tax most people ignore\n→ What the inflation tax actually costs you\n→ How the convenience tax adds up\n→ Tracking and eliminating hidden fees\n→ The one legal tax move most people miss\n\n🔔 Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #taxes #moneyleaks #personalfinance #budgeting",
+    youtubeDescription: "Day 42 of 90 -- The five hidden taxes draining your money before you can manage it.\n\n-> The taxes beyond income tax most people ignore\n-> What the inflation tax actually costs you\n-> How the convenience tax adds up\n-> Tracking and eliminating hidden fees\n-> The one legal tax move most people miss\n\n Subscribe for daily wealth building content\n@DailyWealthBuilding\n\n#DailyWealthBuilding #taxes #moneyleaks #personalfinance #budgeting",
     pinnedComment: "Income tax is just the start. Inflation erodes your savings. Convenience charges pile up. Subscriptions auto-renew. The wealthy are obsessive about plugging these leaks. You should be too."
   },
 
