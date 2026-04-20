@@ -1,64 +1,112 @@
-  // -----------------------------------------------------------------------------
-// src/components/SpecialOverlays.jsx -- DWB Composition Layouts v1.0
+// src/components/SpecialOverlays.jsx -- DWB v9.0
+// FILE PATH: src/components/SpecialOverlays.jsx
 //
-// Components:
-//             -- 3-2-1 spring countdown before hook
-//     -- 3-stat mini grid (Day 30 reveal)
-//           -- pill card floats in with data point
-//           -- vertical split reveal left/right
-//           -- TikTok-style notification popup
-//     -- animated bar chart comparison
-//             -- code terminal overlay
-//                 -- broadcast lower third nameplate
-//                -- scene progress indicator
-//            -- documentary corner timestamp
-//
-// All components accept: startFrame, endFrame, and component-specific props
-// Use via overlay.animation field or wire directly in VideoComposition
-// -----------------------------------------------------------------------------
+// Main export: SpecialOverlays -- channel watermark, day counter, progress bar
+// Sub-exports: StatsDashboard, FloatingInfoCard, LowerThird, SceneNumber (milestone use)
 
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, interpolate, spring, Easing } from 'remotion';
+import {
+  AbsoluteFill,
+  useCurrentFrame,
+  useVideoConfig,
+  interpolate,
+  Easing,
+} from 'remotion';
 
-// -----------------------------------------------------------------------------
-// COUNTDOWN INTRO -- 3-2-1 before hook
-// Proven retention: builds tension, primes viewer for impact
-// -----------------------------------------------------------------------------
-export const CountdownIntro = ({ accentColor = '#FFD700', onComplete }) => {
+// =============================================================================
+// MAIN EXPORT -- used by VideoComposition on every video
+// Shows: @DailyWealthBuilding watermark + DAY XX/90 badge + progress bar
+// =============================================================================
+export const SpecialOverlays = ({ videoId = 'day37', totalFrames = 900 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
 
-  // Each number gets 15 frames
-  const STEP = 15;
-  const TOTAL = STEP * 3; // 45 frames total
-  if (frame >= TOTAL) return null;
+  const dayNum = parseInt((videoId || 'day0').replace('day', '')) || 0;
 
-  const currentNum = 3 - Math.floor(frame / STEP);
-  const localFrame = frame % STEP;
+  // Fade in on entry
+  const opacity = interpolate(frame, [0, 20], [0, 1], { extrapolateRight: 'clamp' });
 
-  const s = spring({ fps, frame: localFrame, config: { damping: 8, stiffness: 300, mass: 0.7 } });
-  const scale = interpolate(s, [0, 1], [2.2, 1]);
-  const opacity = interpolate(localFrame, [STEP - 5, STEP], [1, 0],
-    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  // Progress bar width 0 -> 100% over video duration
+  const progressW = interpolate(frame, [0, totalFrames], [0, 100], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
 
   return (
+    <AbsoluteFill style={{ pointerEvents: 'none', zIndex: 50 }}>
 
+      {/* TOP LEFT: @DailyWealthBuilding watermark */}
+      <div style={{
+        position: 'absolute',
+        top: '4%',
+        left: '4%',
+        opacity: opacity * 0.75,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: '22px',
+        fontWeight: '700',
+        color: '#FFFFFF',
+        letterSpacing: '0.04em',
+        textShadow: '0 1px 8px rgba(0,0,0,0.9)',
+      }}>
+        @DailyWealthBuilding
+      </div>
 
-        {currentNum}
+      {/* TOP RIGHT: DAY XX/90 badge */}
+      <div style={{
+        position: 'absolute',
+        top: '3.8%',
+        right: '3.5%',
+        opacity: opacity,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0px',
+        background: 'rgba(0,0,0,0.7)',
+        border: '1px solid rgba(202,255,0,0.4)',
+        padding: '4px 10px',
+      }}>
+        <span style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: '22px',
+          fontWeight: '900',
+          color: '#CAFF00',
+          letterSpacing: '0.06em',
+        }}>
+          DAY {dayNum}
+        </span>
+        <span style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: '16px',
+          fontWeight: '400',
+          color: 'rgba(202,255,0,0.55)',
+          letterSpacing: '0.04em',
+          marginLeft: '2px',
+        }}>
+          /90
+        </span>
+      </div>
 
+      {/* BOTTOM: Progress bar */}
+      <div style={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: '3px',
+        background: 'rgba(255,255,255,0.08)',
+      }}>
+        <div style={{
+          height: '100%',
+          width: progressW + '%',
+          background: 'linear-gradient(to right, #CAFF00, #FFD700)',
+          boxShadow: '0 0 8px rgba(202,255,0,0.6)',
+        }} />
+      </div>
 
+    </AbsoluteFill>
   );
 };
 
-// -----------------------------------------------------------------------------
-// STATS DASHBOARD -- 3-stat mini grid overlay
-// Perfect for milestone days (Day 30, 40, 60, 90)
-//
-// stats = [
-//   { label: 'TikTok Followers', value: 15, suffix: '' },
-//   { label: 'Top Video Views', value: 322, suffix: '' },
-//   { label: 'Income', value: 0, prefix: '$' },
-// ]
-// -----------------------------------------------------------------------------
+// =============================================================================
+// STATS DASHBOARD -- 3-stat mini grid (for milestone days)
+// =============================================================================
 export const StatsDashboard = ({
   stats = [],
   accentColor = '#FFD700',
@@ -66,53 +114,88 @@ export const StatsDashboard = ({
   endFrame = 450,
 }) => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
   const localFrame = frame - startFrame;
   const totalFrames = endFrame - startFrame;
 
-  if (localFrame < 0 || localFrame > endFrame + 10) return null;
+  if (localFrame < 0 || localFrame > totalFrames + 10) return null;
 
-  const slideY = interpolate(localFrame, [0, 14], [60, 0],
-    { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+  const slideY = interpolate(localFrame, [0, 14], [60, 0], {
+    extrapolateRight: 'clamp',
+    easing: Easing.out(Easing.cubic),
+  });
   const opacity = Math.min(
     interpolate(localFrame, [0, 10], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(localFrame, [totalFrames - 10, totalFrames], [1, 0], { extrapolateLeft: 'clamp' })
   );
 
   return (
-
-
+    <AbsoluteFill style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      top: 'auto',
+      bottom: '22%',
+    }}>
+      <div style={{
+        transform: `translateY(${slideY}px)`,
+        opacity,
+        display: 'flex',
+        gap: '12px',
+        padding: '0 24px',
+      }}>
         {stats.map((stat, i) => {
           const statDelay = i * 8;
           const statLocalFrame = localFrame - statDelay;
-          const progress = interpolate(statLocalFrame, [0, Math.max(totalFrames - 40, 20)], [0, 1],
-            { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+          const progress = interpolate(
+            statLocalFrame,
+            [0, Math.max(totalFrames - 40, 20)],
+            [0, 1],
+            { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) }
+          );
           const current = Math.round(progress * (stat.value || 0));
 
           return (
-
-
+            <div key={i} style={{
+              background: 'rgba(0,0,0,0.82)',
+              border: `1px solid ${accentColor}44`,
+              padding: '14px 18px',
+              textAlign: 'center',
+              minWidth: '120px',
+            }}>
+              <div style={{
+                fontFamily: "'Anton', sans-serif",
+                fontSize: '36px',
+                color: accentColor,
+                lineHeight: 1,
+              }}>
                 {stat.prefix || ''}{current.toLocaleString()}{stat.suffix || ''}
-
-
+              </div>
+              <div style={{
+                fontFamily: "'Montserrat', sans-serif",
+                fontSize: '16px',
+                color: 'rgba(255,255,255,0.55)',
+                marginTop: '4px',
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}>
                 {stat.label}
-
-
+              </div>
+            </div>
           );
         })}
-
-
+      </div>
+    </AbsoluteFill>
   );
 };
 
-// -----------------------------------------------------------------------------
-// FLOATING INFO CARD -- pill card floats in with supporting data
-// -----------------------------------------------------------------------------
+// =============================================================================
+// FLOATING INFO CARD
+// =============================================================================
 export const FloatingInfoCard = ({
-  icon = '📊',
+  icon = '',
   text = '',
   accentColor = '#FFD700',
-  side = 'left',        // 'left' | 'right'
+  side = 'left',
   yPosition = '35%',
   startFrame = 0,
   endFrame = 90,
@@ -121,267 +204,110 @@ export const FloatingInfoCard = ({
   const localFrame = frame - startFrame;
   const totalFrames = endFrame - startFrame;
 
-  if (localFrame < 0 || localFrame > endFrame + 10) return null;
+  if (localFrame < 0 || localFrame > totalFrames + 10) return null;
 
   const fromX = side === 'left' ? -260 : 260;
-  const translateX = interpolate(localFrame, [0, 14], [fromX, 0],
-    { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+  const translateX = interpolate(localFrame, [0, 14], [fromX, 0], {
+    extrapolateRight: 'clamp',
+    easing: Easing.out(Easing.cubic),
+  });
   const opacity = Math.min(
     interpolate(localFrame, [0, 8], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(localFrame, [totalFrames - 8, totalFrames], [1, 0], { extrapolateLeft: 'clamp' })
   );
 
   return (
-
-
-        {icon}
-        {text}
-
-
-  );
-};
-
-// -----------------------------------------------------------------------------
-// BEFORE / AFTER SPLIT REVEAL
-// Vertical divider sweeps across -- perfect for myth-busting content
-//
-// leftText  = "BEFORE" or wrong state
-// rightText = "AFTER" or correct state
-// -----------------------------------------------------------------------------
-export const BeforeAfterSplit = ({
-  leftLabel  = 'BEFORE',
-  rightLabel = 'AFTER',
-  leftText   = '',
-  rightText  = '',
-  startFrame = 0,
-  endFrame   = 150,
-}) => {
-  const frame = useCurrentFrame();
-  const localFrame = frame - startFrame;
-  const totalFrames = endFrame - startFrame;
-
-  if (localFrame < 0 || localFrame > endFrame + 10) return null;
-
-  // Divider sweeps from center to full split
-  const dividerProgress = interpolate(localFrame, [0, 20], [0, 1],
-    { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
-
-  const leftOpacity = Math.min(
-    interpolate(localFrame, [0, 12], [0, 1], { extrapolateRight: 'clamp' }),
-    interpolate(localFrame, [totalFrames - 10, totalFrames], [1, 0], { extrapolateLeft: 'clamp' })
-  );
-  const rightOpacity = Math.min(
-    interpolate(localFrame, [8, 22], [0, 1], { extrapolateRight: 'clamp' }),
-    interpolate(localFrame, [totalFrames - 10, totalFrames], [1, 0], { extrapolateLeft: 'clamp' })
-  );
-
-  return (
-
-      {/* Left panel -- BEFORE (red tint) */}
-
-        {leftLabel}
-        {leftText && (
-          {leftText}
+    <AbsoluteFill>
+      <div style={{
+        position: 'absolute',
+        top: yPosition,
+        [side]: '5%',
+        transform: `translateX(${translateX}px)`,
+        opacity,
+        background: 'rgba(0,0,0,0.84)',
+        border: `1px solid ${accentColor}55`,
+        borderLeft: `3px solid ${accentColor}`,
+        padding: '10px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        maxWidth: '260px',
+      }}>
+        {icon && (
+          <span style={{ fontSize: '24px' }}>{icon}</span>
         )}
-
-
-      {/* Right panel -- AFTER (green tint) */}
-
-        {rightLabel}
-        {rightText && (
-          {rightText}
-        )}
-
-
-      {/* Center divider line */}
-
-
+        <span style={{
+          fontFamily: "'Montserrat', sans-serif",
+          fontSize: '20px',
+          color: '#FFFFFF',
+          lineHeight: 1.4,
+        }}>
+          {text}
+        </span>
+      </div>
+    </AbsoluteFill>
   );
 };
 
-// -----------------------------------------------------------------------------
-// SOCIAL PROOF POPUP -- TikTok-style notification
-// Shows follower count jump, milestone, or comment
-// -----------------------------------------------------------------------------
-export const SocialProofPopup = ({
-  platform = 'tiktok',   // 'tiktok' | 'youtube'
-  text = '+1 Follower',
-  startFrame = 0,
-  endFrame = 75,
-  yPosition = '25%',
-}) => {
-  const frame = useCurrentFrame();
-  const localFrame = frame - startFrame;
-  const totalFrames = endFrame - startFrame;
-
-  if (localFrame < 0 || localFrame > endFrame + 10) return null;
-
-  const translateY = interpolate(localFrame, [0, 12], [40, 0],
-    { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
-  const opacity = Math.min(
-    interpolate(localFrame, [0, 8], [0, 1], { extrapolateRight: 'clamp' }),
-    interpolate(localFrame, [totalFrames - 10, totalFrames], [1, 0], { extrapolateLeft: 'clamp' })
-  );
-
-  const platformColor = platform === 'tiktok' ? '#FF0050' : '#FF0000';
-  const platformIcon  = platform === 'tiktok' ? '♪' : '▶';
-
-  return (
-
-
-
-          {platformIcon}
-
-        {text}
-
-
-  );
-};
-
-// -----------------------------------------------------------------------------
-// DATA BAR CHART -- animated bar chart, bars grow from 0
-//
-// bars = [
-//   { label: 'TikTok', value: 70, color: '#FF0050' },
-//   { label: 'YouTube', value: 100, color: '#FF0000' },
-// ]
-// -----------------------------------------------------------------------------
-export const DataBarChart = ({
-  bars = [],
-  title = '',
-  startFrame = 0,
-  endFrame = 150,
-  maxValue,
-}) => {
-  const frame = useCurrentFrame();
-  const localFrame = frame - startFrame;
-  const totalFrames = endFrame - startFrame;
-
-  if (localFrame < 0 || localFrame > endFrame + 10) return null;
-
-  const max = maxValue || Math.max(...bars.map(b => b.value), 1);
-  const opacity = Math.min(
-    interpolate(localFrame, [0, 10], [0, 1], { extrapolateRight: 'clamp' }),
-    interpolate(localFrame, [totalFrames - 10, totalFrames], [1, 0], { extrapolateLeft: 'clamp' })
-  );
-
-  return (
-
-
-        {title && (
-          {title}
-        )}
-
-          {bars.map((bar, i) => {
-            const barDelay = i * 6;
-            const barProgress = interpolate(localFrame - barDelay,
-              [0, Math.max(totalFrames - 30, 20)], [0, 1],
-              { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
-            const barHeight = (bar.value / max) * 100 * barProgress;
-
-            return (
-
-
-                  {Math.round(bar.value * barProgress)}
-
-
-
-
-                {bar.label}
-
-            );
-          })}
-
-
-
-  );
-};
-
-// -----------------------------------------------------------------------------
-// TERMINAL WINDOW -- code editor overlay
-// Perfect for tutorial/tool reveal days
-// -----------------------------------------------------------------------------
-export const TerminalWindow = ({
-  lines = [],
-  title = 'terminal',
-  startFrame = 0,
-  endFrame = 180,
-  accentColor = '#00FF88',
-}) => {
-  const frame = useCurrentFrame();
-  const localFrame = frame - startFrame;
-  const totalFrames = endFrame - startFrame;
-
-  if (localFrame < 0 || localFrame > endFrame + 10) return null;
-
-  const CHARS_PER_FRAME = 2;
-  const allText = lines.join('\n');
-  const charsToShow = Math.min(
-    Math.floor(localFrame * CHARS_PER_FRAME),
-    allText.length
-  );
-  const visibleText = allText.slice(0, charsToShow);
-  const showCursor = charsToShow
-
-        {/* Title bar */}
-
-          {['#FF5F56', '#FFBD2E', '#27C93F'].map((c, i) => (
-
-          ))}
-          {title}
-
-        {/* Content */}
-
-          $
-          {visibleText}
-          {showCursor && █}
-
-
-
-  );
-};
-
-// -----------------------------------------------------------------------------
-// LOWER THIRD -- broadcast news nameplate
-// -----------------------------------------------------------------------------
+// =============================================================================
+// LOWER THIRD -- channel name + label sliding in
+// =============================================================================
 export const LowerThird = ({
   handle = '@DailyWealthBuilding',
-  label = 'Affiliate Marketing Journey',
-  accentColor = '#FFD700',
-  startFrame = 10,
+  label = 'AFFILIATE MARKETING JOURNEY',
+  accentColor = '#CAFF00',
+  startFrame = 0,
   endFrame = 120,
 }) => {
   const frame = useCurrentFrame();
   const localFrame = frame - startFrame;
   const totalFrames = endFrame - startFrame;
 
-  if (localFrame < 0 || localFrame > endFrame + 10) return null;
+  if (localFrame < 0 || localFrame > totalFrames + 10) return null;
 
-  const slideX = interpolate(localFrame, [0, 14], [-400, 0],
-    { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+  const slideX = interpolate(localFrame, [0, 14], [-400, 0], {
+    extrapolateRight: 'clamp',
+    easing: Easing.out(Easing.cubic),
+  });
   const opacity = Math.min(
     interpolate(localFrame, [0, 8], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(localFrame, [totalFrames - 10, totalFrames], [1, 0], { extrapolateLeft: 'clamp' })
   );
 
   return (
-
-
-        {/* Accent bar */}
-
-        {/* Text block */}
-
-          {handle}
-          {label}
-
-
-
+    <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'flex-start', padding: '0 0 18% 5%' }}>
+      <div style={{ transform: `translateX(${slideX}px)`, opacity }}>
+        <div style={{
+          borderLeft: `3px solid ${accentColor}`,
+          paddingLeft: '12px',
+        }}>
+          <div style={{
+            fontFamily: "'Anton', sans-serif",
+            fontSize: '32px',
+            color: '#FFFFFF',
+            letterSpacing: '0.04em',
+            textShadow: '0 2px 8px rgba(0,0,0,0.9)',
+          }}>
+            {handle}
+          </div>
+          <div style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: '16px',
+            color: accentColor,
+            letterSpacing: '0.12em',
+            marginTop: '2px',
+          }}>
+            {label}
+          </div>
+        </div>
+      </div>
+    </AbsoluteFill>
   );
 };
 
-// -----------------------------------------------------------------------------
-// SCENE NUMBER -- 01/07 documentary indicator
-// -----------------------------------------------------------------------------
+// =============================================================================
+// SCENE NUMBER -- 01/07 documentary style
+// =============================================================================
 export const SceneNumber = ({
   current = 1,
   total = 7,
@@ -392,43 +318,54 @@ export const SceneNumber = ({
   const localFrame = frame - startFrame;
   if (localFrame < 0 || localFrame > endFrame) return null;
 
-  const opacity = interpolate(localFrame, [0, 15], [0, 0.7],
-    { extrapolateRight: 'clamp' });
-
+  const opacity = interpolate(localFrame, [0, 15], [0, 0.7], { extrapolateRight: 'clamp' });
   const pad = (n) => String(n).padStart(2, '0');
 
   return (
-
-
+    <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'flex-start', padding: '6% 0 0 5%' }}>
+      <div style={{
+        opacity,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: '18px',
+        color: 'rgba(255,255,255,0.55)',
+        letterSpacing: '0.12em',
+        textShadow: '0 1px 6px rgba(0,0,0,0.8)',
+      }}>
         {pad(current)}/{pad(total)}
-
-
+      </div>
+    </AbsoluteFill>
   );
 };
 
-// -----------------------------------------------------------------------------
-// CORNER TIMESTAMP -- documentary authenticity
-// -----------------------------------------------------------------------------
+// =============================================================================
+// CORNER TIMESTAMP
+// =============================================================================
 export const CornerTimestamp = ({
   startFrame = 0,
   endFrame = 900,
-  label = '',  // e.g. "DAY 30/90"
+  label = '',
 }) => {
   const frame = useCurrentFrame();
   const localFrame = frame - startFrame;
   if (localFrame < 0 || localFrame > endFrame) return null;
 
-  const opacity = interpolate(localFrame, [0, 20], [0, 0.6],
-    { extrapolateRight: 'clamp' });
+  const opacity = interpolate(localFrame, [0, 20], [0, 0.6], { extrapolateRight: 'clamp' });
   const secs = Math.floor(localFrame / 30);
   const frac = String(localFrame % 30).padStart(2, '0');
-  const timeStr = label || `00:${String(secs).padStart(2, '0')}:${frac}`;
+  const timeStr = label || ('00:' + String(secs).padStart(2, '0') + ':' + frac);
 
   return (
-
-
+    <AbsoluteFill style={{ alignItems: 'flex-end', justifyContent: 'flex-start', padding: '0 0 5% 5%' }}>
+      <div style={{
+        opacity,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: '16px',
+        color: 'rgba(255,255,255,0.45)',
+        letterSpacing: '0.1em',
+        textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+      }}>
         {timeStr}
-
-
+      </div>
+    </AbsoluteFill>
   );
 };
