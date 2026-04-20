@@ -280,7 +280,8 @@ jobs:
               const nm = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
               const arr = dm ? dm[1] : (nm ? nm[1] : null);
               if (!arr) { console.log('Warning: could not parse ' + file); continue; }
-              const entries = eval(arr);
+              const cleanArr = arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
+              const entries = eval(cleanArr);
               allEntries = allEntries.concat(entries);
               console.log('Loaded ' + entries.length + ' entries from ' + file);
             } catch(e) { console.log('Warning: ' + file + ': ' + e.message); }
@@ -304,7 +305,7 @@ jobs:
             const dm = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
             const nm = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
             const arr = dm ? dm[1] : (nm ? nm[1] : null);
-            try { activeDays = arr ? eval(arr).map(function(e){return e.id;}).filter(Boolean) : []; }
+            try { const ca2 = arr ? arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '') : '[]'; activeDays = eval(ca2).map(function(e){return e.id;}).filter(Boolean); }
             catch(e) { activeDays = []; }
             console.log('Auto week' + weekNums[0] + ': ' + activeDays.join(', '));
           }
@@ -435,7 +436,7 @@ jobs:
           function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
           let entries=[];
           if(fs.existsSync('src/current-video.js')){try{const src=fs.readFileSync('src/current-video.js','utf8');const m=src.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);if(m)entries=[JSON.parse(m[1])];}catch(e){}}
-          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const src=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=src.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);const nm=src.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr);}catch(e){}}}
+          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const src=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=src.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);const nm=src.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g,''));}catch(e){}}}
           if(!entries.length){console.log('No entries -- skipping scorer');process.exit(0);}
           const hooks=entries.map(function(e){return{id:e.id,hook:((e.overlays||[])[0]||{}).text||'N/A',topic:e.title||e.id};});
           const hookLines=hooks.map(function(h,i){return (i+1)+'. ['+h.id+'] Hook: "'+h.hook.replace(/\n/g,' ')+'" | Topic: "'+h.topic+'"';}).join('\n');
@@ -703,7 +704,7 @@ jobs:
           const fs=require('fs'),path=require('path');
           let entries=[];
           if(fs.existsSync('src/current-video.js')){try{const src=fs.readFileSync('src/current-video.js','utf8');const m=src.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);if(m)entries=[JSON.parse(m[1])];}catch(e){}}
-          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const src=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=src.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);const nm=src.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr);}catch(e){}}}
+          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const src=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=src.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);const nm=src.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g,''));}catch(e){}}}
           function toSRT(f){const ms=Math.round((f/30)*1000);const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000),ms2=ms%1000;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+','+String(ms2).padStart(3,'0');}
           let gen=0;for(const e of entries){if(!e.overlays||!e.id)continue;const lines=[];let idx=1;for(const o of e.overlays){if(!o.text||o.startFrame===undefined||o.endFrame===undefined)continue;lines.push(String(idx));lines.push(toSRT(o.startFrame)+' --> '+toSRT(o.endFrame));lines.push(o.text.replace(/\n/g,' '));lines.push('');idx++;}if(lines.length){fs.mkdirSync('out/srt',{recursive:true});fs.writeFileSync('out/srt/'+e.id+'.srt',lines.join('\n'));gen++;}}
           console.log('Generated '+gen+' SRT files');
