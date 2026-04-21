@@ -1,18 +1,34 @@
-name: Render DWB Videos
+name: Render DWB Videos v10
+
+# ============================================================================
+# SCHEDULE: 3x daily for global reach
+#   Slot A: 4AM UTC  = 7AM EAT   -- catches Asia + Australia prime time
+#   Slot B: 9AM UTC  = 12PM EAT  -- catches Europe lunch break
+#   Slot C: 4PM UTC  = 7PM EAT   -- catches US afternoon (original slot)
+# Each slot renders ONE new video (auto-incremented day counter).
+# YouTube video is scheduled to go live at the SAME slot time the NEXT day.
+# TikTok posting is done manually at those same 3 times.
+# ============================================================================
 
 on:
   schedule:
-    - cron: '0 16 * * *'   # 4PM UTC = 7PM EAT daily
+    - cron: '0 4  * * *'   # Slot A: 4AM  UTC = 7AM  EAT (Asia/AU audience)
+    - cron: '0 9  * * *'   # Slot B: 9AM  UTC = 12PM EAT (Europe audience)
+    - cron: '0 16 * * *'   # Slot C: 4PM  UTC = 7PM  EAT (US audience -- original)
   workflow_dispatch:
     inputs:
       days_override:
-        description: 'Specific days comma-separated (e.g. day43,day44,day45). Leave blank for Groq auto-generate.'
+        description: 'Specific days comma-separated (e.g. day43,day44). Leave blank for auto.'
         required: false
         default: ''
       skip_groq_gen:
-        description: 'true = skip Groq, use existing content files'
+        description: 'true = skip Groq, use existing content files only'
         required: false
         default: 'false'
+      slot_override:
+        description: 'Force a publish slot: A (7AM EAT), B (12PM EAT), C (7PM EAT)'
+        required: false
+        default: ''
 
 jobs:
   render:
@@ -33,18 +49,59 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install system fonts
+      - name: Install system tools
         run: |
-          sudo apt-get install -y fonts-liberation fontconfig -q --fix-missing || true
-          echo "Fonts ready"
+          sudo apt-get install -y fonts-liberation fontconfig ffmpeg -q --fix-missing || true
+          echo "System tools ready"
 
       - name: Install chrome-headless-shell
         run: npx remotion browser ensure
 
       - name: Create required directories
         run: |
-          mkdir -p public/videos public/music public/sfx public/photos
+          mkdir -p public/videos public/music public/sfx public/photos public/illustrations
           mkdir -p out out/thumbs out/gifs out/srt
+
+      # =========================================================================
+      # DETECT PUBLISH SLOT
+      # Determines which of the 3 daily slots this run belongs to.
+      # Sets PUBLISH_SLOT (A/B/C) and PUBLISH_UTC_HOUR for YouTube scheduling.
+      # =========================================================================
+      - name: Detect publish slot
+        run: |
+          node << 'SLOTEOF'
+          const fs  = require('fs');
+          const now = new Date();
+          const h   = now.getUTCHours();
+
+          // slot_override from manual trigger
+          const override = '${{ github.event.inputs.slot_override }}' || '';
+          let slot, utcHour;
+
+          if (override === 'A') {
+            slot = 'A'; utcHour = 4;
+          } else if (override === 'B') {
+            slot = 'B'; utcHour = 9;
+          } else if (override === 'C') {
+            slot = 'C'; utcHour = 16;
+          } else if (h < 7) {
+            slot = 'A'; utcHour = 4;   // 4AM UTC = 7AM EAT
+          } else if (h < 12) {
+            slot = 'B'; utcHour = 9;   // 9AM UTC = 12PM EAT
+          } else {
+            slot = 'C'; utcHour = 16;  // 4PM UTC = 7PM EAT
+          }
+
+          const slotNames = { A: '7AM EAT (Asia/AU)', B: '12PM EAT (Europe)', C: '7PM EAT (US)' };
+          console.log('Publish slot: ' + slot + ' = ' + slotNames[slot]);
+
+          const envFile = process.env.GITHUB_ENV;
+          if (envFile) {
+            const fs2 = require('fs');
+            fs2.appendFileSync(envFile, 'PUBLISH_SLOT='     + slot    + '\n');
+            fs2.appendFileSync(envFile, 'PUBLISH_UTC_HOUR=' + utcHour + '\n');
+          }
+          SLOTEOF
 
       # =========================================================================
       # GROQ SCRIPT GENERATION
@@ -54,13 +111,14 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NTFY_TOPIC:   ${{ secrets.NTFY_TOPIC }}
+          PUBLISH_SLOT: ${{ env.PUBLISH_SLOT }}
         run: |
-          sudo apt-get install -y ffmpeg -q --fix-missing 2>/dev/null || true
           node << 'GROQEOF'
           const fs    = require('fs');
           const https = require('https');
           const GROQ_KEY = process.env.GROQ_API_KEY || '';
           const NTFY     = process.env.NTFY_TOPIC    || '';
+          const SLOT     = process.env.PUBLISH_SLOT  || 'C';
 
           function safeTitle(s) { return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100); }
 
@@ -68,7 +126,7 @@ jobs:
           try { counter = JSON.parse(fs.readFileSync('video-counter.json','utf8')); } catch(e){}
           const dayNum = counter.nextDay;
           const dayId  = 'day' + dayNum;
-          console.log('Generating: ' + dayId);
+          console.log('Slot ' + SLOT + ' | Generating: ' + dayId);
 
           let history = [];
           try { history = JSON.parse(fs.readFileSync('content-history.json','utf8')); } catch(e){}
@@ -111,64 +169,74 @@ jobs:
             'Why people who earn $200K still go broke -- lifestyle creep explained',
             'The only 3 financial metrics that matter and how to track them',
           ];
-          const HOOK_ANIMS = ['zoom-punch','stamp-impact','word-pop','stacked-giant','kinetic-mixed','spotlight-reveal','comic-impact','neon-flicker','elastic-snap','glitch','accent-reveal','mixed-weight'];
-          const BODY_ANIMS = ['stagger','word-bounce','blur-in','split-reveal','fade','flip-up','letter-drop','multi-line','wave-cascade','slide-up','elegant-rise','editorial-body','fade-word'];
-          const CTA_ANIMS  = ['kinetic','word-bounce','stamp-impact','word-pop','neon-flicker','caps','bounce','accent-reveal'];
+
+          const HOOK_ANIMS  = ['zoom-punch','stamp-impact','line-reveal','flip-up','split-reveal','caps','glass-lower'];
+          const BODY_ANIMS  = ['stagger','elegant-rise','fade-word','editorial-body','blur-in','slide-up','aesthetic-card','multi-line'];
+          const CTA_ANIMS   = ['kinetic','word-bounce','glass-lower','caps'];
+
+          // v10: 3 font pairs -- Anton always for hooks (proven to work)
           const FONTS = [
-            {hookFont:'Anton',bodyFont:'Montserrat'},{hookFont:'Bebas',bodyFont:'Archivo'},
-            {hookFont:'Barlow',bodyFont:'Grotesk'},{hookFont:'Anton',bodyFont:'Mono'},
-            {hookFont:'Oswald',bodyFont:'Montserrat'},{hookFont:'Barlow',bodyFont:'Montserrat'},
+            {hookFont:'Anton',bodyFont:'Montserrat'},
+            {hookFont:'Anton',bodyFont:'Grotesk'},
+            {hookFont:'Anton',bodyFont:'Archivo'},
           ];
+
+          // v10: color schemes tuned for aesthetic clips (light backgrounds)
+          // Lime green is high contrast on light and dark -- keep as primary
           const COLORS = [
             {hook:'#CAFF00',body:'#FFFFFF',alt:'#FFD700',cta:'#CAFF00'},
-            {hook:'#FF4444',body:'#FFFFFF',alt:'#FFD700',cta:'#FF4444'},
-            {hook:'#00D4FF',body:'#FFFFFF',alt:'#CAFF00',cta:'#00D4FF'},
-            {hook:'#FFFFFF',body:'#CAFF00',alt:'#FFD700',cta:'#FF4444'},
-            {hook:'#FF9900',body:'#FFFFFF',alt:'#FF4444',cta:'#CAFF00'},
+            {hook:'#CAFF00',body:'#FFD700',alt:'#FFFFFF',cta:'#CAFF00'},
+            {hook:'#FF4444',body:'#FFFFFF',alt:'#FFD700',cta:'#CAFF00'},
+            {hook:'#FFFFFF',body:'#CAFF00',alt:'#FFD700',cta:'#CAFF00'},
+            {hook:'#FFD700',body:'#FFFFFF',alt:'#CAFF00',cta:'#CAFF00'},
           ];
-          const HASHTAGS = ['personalfinance','wealthbuilding','financialfreedom','moneytips','moneyhabits','investing101','sidehustle','passiveincome','makemoneyonline','budgeting','compoundinterest','financialliteracy','wealthmindset','savemoney','moneymoves'];
 
-          const idea1 = IDEAS[dayNum % IDEAS.length];
-          const idea2 = IDEAS[(dayNum + 11) % IDEAS.length];
-          const fontPair = FONTS[dayNum % FONTS.length];
+          const HASHTAGS = ['personalfinance','wealthbuilding','financialfreedom','moneytips','moneyhabits','investing101','sidehustle','passiveincome','budgeting','compoundinterest','financialliteracy','wealthmindset','savemoney','moneymoves'];
+
+          const idea1       = IDEAS[dayNum % IDEAS.length];
+          const idea2       = IDEAS[(dayNum + 11) % IDEAS.length];
+          const fontPair    = FONTS[dayNum % FONTS.length];
           const colorScheme = COLORS[dayNum % COLORS.length];
-          const trendCtx = trending.length > 0 ? '\nTRENDING SOUNDS: ' + trending.slice(0,3).map(function(s){return s.title+' - '+s.artist;}).join(', ') : '';
+          const trendCtx    = trending.length > 0 ? '\nTRENDING SOUNDS: ' + trending.slice(0,3).map(function(s){return s.title+' - '+s.artist;}).join(', ') : '';
 
-          const prompt = 'You are Ashley, AI creative director for @DailyWealthBuilding -- a faceless automated finance YouTube Shorts channel.\n\n' +
-            'MISSION: Generate a complete scroll-stopping 30-second video script + visual config for ' + dayId + ' of 90.\n\n' +
+          const prompt =
+            'You are Ashley, AI creative director for @DailyWealthBuilding -- a faceless automated finance YouTube Shorts channel.\n\n' +
+            'MISSION: Generate a complete scroll-stopping 30-second video script for ' + dayId + ' of 90.\n\n' +
             'RECENT TOPICS (do NOT repeat): ' + (recentTopics||'none yet') + trendCtx + '\n\n' +
-            'IDEAS TO BUILD ON (pick one or fuse):\n1. ' + idea1 + '\n2. ' + idea2 + '\n\n' +
-            'FONT PAIR FOR THIS VIDEO: hookFont=' + fontPair.hookFont + ', bodyFont=' + fontPair.bodyFont + '\n' +
+            'IDEAS TO BUILD ON:\n1. ' + idea1 + '\n2. ' + idea2 + '\n\n' +
+            'FONT PAIR: hookFont=' + fontPair.hookFont + ', bodyFont=' + fontPair.bodyFont + '\n' +
             'COLOR SCHEME: hook=' + colorScheme.hook + ', body=' + colorScheme.body + ', alt=' + colorScheme.alt + ', cta=' + colorScheme.cta + '\n\n' +
             'OVERLAY TIMING (900 frames = 30 seconds):\n' +
             '[0] HOOK   0-90   (3s) -- ONE sentence. Stops scroll cold.\n' +
-            '[1] TRUTH  90-270 (6s) -- The uncomfortable reality\n' +
-            '[2] PROOF  270-450(6s) -- Data / contrast / story\n' +
-            '[3] SYSTEM 450-720(9s) -- Simple 3-step actionable framework\n' +
-            '[4] CTA    720-900(6s) -- Comment bait + follow + identity trigger\n\n' +
-            'HOOK animation (pick 1): ' + HOOK_ANIMS.join(', ') + '\n' +
-            'BODY animations (pick 1 each, never repeat): ' + BODY_ANIMS.join(', ') + '\n' +
-            'CTA animation (pick 1): ' + CTA_ANIMS.join(', ') + '\n\n' +
+            '[1] TRUTH  90-270 (6s) -- Uncomfortable reality\n' +
+            '[2] PROOF  270-450(6s) -- Data / contrast\n' +
+            '[3] SYSTEM 450-720(9s) -- Simple actionable framework\n' +
+            '[4] CTA    720-900(6s) -- Comment bait + identity trigger\n\n' +
+            'HOOK animations: ' + HOOK_ANIMS.join(', ') + '\n' +
+            'BODY animations: ' + BODY_ANIMS.join(', ') + '\n' +
+            'CTA animations:  ' + CTA_ANIMS.join(', ') + '\n\n' +
+            'TEXT SIZE RULES (v10 -- MANDATORY):\n' +
+            '- Hook fontSize: 92-100 (Anton renders bold and large)\n' +
+            '- Body fontSize: 76-84 (Montserrat -- scaleFontSize will reduce slightly)\n' +
+            '- CTA fontSize: 86-94 (Anton -- bold, readable)\n' +
+            '- NEVER set body fontSize below 76\n\n' +
             'CONTENT RULES:\n' +
-            '- Level 4 Unaware Audience (they dont know they have a money problem)\n' +
-            '- Hook works without sound -- pure visual\n' +
-            '- Max 2 lines per overlay, 1 idea\n' +
-            '- Specific number in hook ("3 habits", "$100/month", "67%")\n' +
-            '- Identity targeting when possible ("If you earn under X...")\n' +
+            '- Level 4 Unaware Audience\n' +
+            '- Hook works without sound\n' +
+            '- Max 3 lines per overlay, 1 idea per slide\n' +
+            '- Specific number in hook\n' +
             '- No income promises\n' +
             '- CTA creates personal stake\n\n' +
-            'TEXT STYLE RULES:\n' +
-            '- lineHeight 1.65 for body text -- breathing room between lines\n' +
-            '- Hook fontSize 84-92px. Body 64-72px. CTA 78-86px.\n' +
-            '- Stroke on every overlay. Anton/Bebas size 3. Montserrat size 2. Color #000000.\n' +
-            '- No stroke needed on elegant-rise, editorial-body, fade-word animations\n\n' +
-            'B-ROLL QUERIES (exactly 6, aligned to overlay sections):\n' +
-            '- Every query MUST end with "vertical"\n' +
-            '- Be SPECIFIC: "person shocked bank statement phone vertical" NOT "money vertical"\n\n' +
+            'IMPORTANT FOR AESTHETIC CLIPS:\n' +
+            '- Body overlays: add textBackground: "glass" for dark card behind text\n' +
+            '- Use position: "lower-third" or "bottom-center" for body text more often\n' +
+            '- Keep text SHORT per overlay (max 10 words per line)\n\n' +
+            'B-ROLL QUERIES (exactly 6, aligned to overlay sections, ending with "vertical"):\n' +
+            '- SPECIFIC: "woman white outfit phone aesthetic vertical" NOT "person vertical"\n\n' +
             'HASHTAGS (pick 4-5): ' + HASHTAGS.join(', ') + ', day' + dayNum + 'of90\n\n' +
             'musicMood: one of punchy/motivational/confident/dramatic/focused/rebellious/uplifting\n\n' +
             'Return ONLY valid JSON. No markdown. No backticks. No explanation.\n\n' +
-            '{"title":"short title","musicMood":"punchy","bRollQueries":["specific query vertical","specific query vertical","specific query vertical","specific query vertical","specific query vertical","specific query vertical"],"overlays":[{"text":"HOOK TEXT","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"zoom-punch","startFrame":0,"endFrame":90,"position":"middle","fontSize":88,"letterSpacing":"0.02em"},{"text":"truth text","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"elegant-rise","startFrame":90,"endFrame":270,"position":"middle","fontSize":68},{"text":"proof text","font":"Montserrat","color":"#FFD700","stroke":{"size":2,"color":"#000000"},"animation":"fade-word","startFrame":270,"endFrame":450,"position":"middle","fontSize":66},{"text":"system text","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"editorial-body","startFrame":450,"endFrame":720,"position":"middle","fontSize":64},{"text":"CTA text 👇","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"kinetic","startFrame":720,"endFrame":900,"position":"bottom-center","fontSize":82,"letterSpacing":"0.02em"}],"youtubeTitle":"Title | Day ' + dayNum + '/90 | Daily Wealth Building","youtubeDescription":"Day ' + dayNum + ' of 90 -- description with arrow bullets\\n\\n🔔 Subscribe\\n@DailyWealthBuilding","tiktokCaption":"caption 👇 #personalfinance #day' + dayNum + 'of90","pinnedComment":"key insight"}';
+            '{"title":"short title","musicMood":"punchy","bRollQueries":["specific query vertical","specific query vertical","specific query vertical","specific query vertical","specific query vertical","specific query vertical"],"overlays":[{"text":"HOOK TEXT","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"zoom-punch","startFrame":0,"endFrame":90,"position":"middle","fontSize":96,"letterSpacing":"0.02em"},{"text":"truth text","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"elegant-rise","startFrame":90,"endFrame":270,"position":"lower-third","fontSize":80,"textBackground":"glass"},{"text":"proof text","font":"Montserrat","color":"#FFD700","stroke":{"size":2,"color":"#000000"},"animation":"fade-word","startFrame":270,"endFrame":450,"position":"lower-third","fontSize":80,"textBackground":"glass"},{"text":"system text","font":"Montserrat","color":"#FFFFFF","stroke":{"size":2,"color":"#000000"},"animation":"editorial-body","startFrame":450,"endFrame":720,"position":"lower-third","fontSize":76,"textBackground":"glass"},{"text":"CTA text","font":"Anton","color":"#CAFF00","stroke":{"size":3,"color":"#000000"},"animation":"kinetic","startFrame":720,"endFrame":900,"position":"bottom-center","fontSize":90,"letterSpacing":"0.02em"}],"youtubeTitle":"Title | Day ' + dayNum + '/90 | Daily Wealth Building","youtubeDescription":"Day ' + dayNum + ' of 90 -- description\\n\\n Subscribe\\n@DailyWealthBuilding","tiktokCaption":"caption #personalfinance #day' + dayNum + 'of90","pinnedComment":"key insight"}';
 
           function callGroq(p) {
             return new Promise(function(resolve, reject) {
@@ -193,25 +261,36 @@ jobs:
             if (!GROQ_KEY) { console.log('No GROQ_API_KEY -- skipping'); process.exit(0); }
             try {
               const res = await callGroq(prompt);
-              if (res.status !== 200) { console.log('Groq HTTP ' + res.status + '\n' + res.body.slice(0,300)); process.exit(0); }
+              if (res.status !== 200) { console.log('Groq HTTP ' + res.status); process.exit(0); }
               const api = JSON.parse(res.body);
               let raw = (((api.choices||[])[0]||{}).message||{}).content || '';
               raw = raw.replace(/```json|```/g,'').trim();
               let vd;
               try { vd = JSON.parse(raw); }
-              catch(e) { console.log('JSON parse failed: '+e.message+'\nRaw: '+raw.slice(0,400)); process.exit(0); }
+              catch(e) { console.log('JSON parse failed: '+e.message); process.exit(0); }
 
               vd.id = dayId; vd.filename = dayId+'_final.mp4'; vd.music = dayId+'.mp3';
               if (!vd.bRollQueries || vd.bRollQueries.length < 6) {
                 vd.bRollQueries = vd.bRollQueries || [];
-                const def = 'finance city lifestyle success vertical';
-                while (vd.bRollQueries.length < 6) vd.bRollQueries.push(def);
+                while (vd.bRollQueries.length < 6) vd.bRollQueries.push('aesthetic lifestyle vertical');
               }
               if (!vd.overlays || !vd.overlays.length) { console.log('No overlays returned'); process.exit(1); }
 
+              // Enforce v10 font sizes
+              vd.overlays = vd.overlays.map(function(o, i) {
+                if (i === 0 || i === vd.overlays.length - 1) {
+                  // Hook/CTA
+                  if ((o.fontSize || 0) < 90) o.fontSize = 96;
+                } else {
+                  // Body
+                  if ((o.fontSize || 0) < 76) o.fontSize = 80;
+                }
+                return o;
+              });
+
               fs.mkdirSync('src',{recursive:true});
               fs.writeFileSync('src/current-video.js',
-                '// Auto-generated by Groq AI -- ' + dayId + ' -- ' + new Date().toISOString().slice(0,10) + '\n' +
+                '// Auto-generated by Groq AI -- ' + dayId + ' -- Slot ' + SLOT + ' -- ' + new Date().toISOString().slice(0,10) + '\n' +
                 'export const currentVideo = ' + JSON.stringify(vd, null, 2) + ';\n'
               );
 
@@ -221,17 +300,16 @@ jobs:
               dayMeta[dayId] = { youtubeTitle:vd.youtubeTitle||'', youtubeDescription:vd.youtubeDescription||'', tiktokCaption:vd.tiktokCaption||'', pinnedComment:vd.pinnedComment||'', music:dayId+'.mp3', musicMood:vd.musicMood||'motivational' };
 
               fs.mkdirSync('out',{recursive:true});
-              fs.writeFileSync('out/.week_info.json', JSON.stringify({ week:'groq-generated', days:[dayId], dayAssets:dayAssets, dayMeta:dayMeta }, null, 2));
+              fs.writeFileSync('out/.week_info.json', JSON.stringify({ week:'groq-generated', days:[dayId], dayAssets:dayAssets, dayMeta:dayMeta, slot:SLOT }, null, 2));
 
-              history.push({ day:dayId, title:vd.title||dayId, hook:((vd.overlays[0]||{}).text||'').replace(/\n/g,' '), generatedAt:new Date().toISOString() });
+              history.push({ day:dayId, title:vd.title||dayId, hook:((vd.overlays[0]||{}).text||'').replace(/\n/g,' '), generatedAt:new Date().toISOString(), slot:SLOT });
               if (history.length > 60) history = history.slice(-60);
               fs.writeFileSync('content-history.json', JSON.stringify(history, null, 2));
 
-              console.log('Generated: ' + dayId + ' | ' + vd.title);
-              console.log('Hook: ' + ((vd.overlays[0]||{}).text||'').replace(/\n/g,' ').slice(0,80));
+              console.log('Generated: ' + dayId + ' | Slot ' + SLOT + ' | ' + vd.title);
 
               await sendNtfy(
-                'Script ready: ' + dayId + '\nTitle: ' + (vd.title||'') + '\nHook: ' + ((vd.overlays[0]||{}).text||'').replace(/\n/g,' ').slice(0,80) + '\nClips: ' + vd.bRollQueries.length,
+                'Script ready [Slot ' + SLOT + ']: ' + dayId + '\nTitle: ' + (vd.title||'') + '\nHook: ' + ((vd.overlays[0]||{}).text||'').replace(/\n/g,' ').slice(0,80),
                 'DWB Script Ready ' + dayId
               );
             } catch(e) { console.log('Groq error: ' + e.message); }
@@ -267,10 +345,7 @@ jobs:
           const allFiles     = fs.existsSync(srcDir) ? fs.readdirSync(srcDir) : [];
           const contentFiles = allFiles.filter(function(f) { return f.match(/^week\d+-content\.js$/); });
 
-          if (contentFiles.length === 0) {
-            console.log('ERROR: No week content files found in src/');
-            process.exit(1);
-          }
+          if (contentFiles.length === 0) { console.log('ERROR: No week content files found'); process.exit(1); }
 
           let allEntries = [];
           for (const file of contentFiles) {
@@ -279,73 +354,45 @@ jobs:
               const dm = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
               const nm = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
               const arr = dm ? dm[1] : (nm ? nm[1] : null);
-              if (!arr) { console.log('Warning: could not parse ' + file); continue; }
+              if (!arr) continue;
               const cleanArr = arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
               const entries = eval(cleanArr);
               allEntries = allEntries.concat(entries);
-              console.log('Loaded ' + entries.length + ' entries from ' + file);
             } catch(e) { console.log('Warning: ' + file + ': ' + e.message); }
           }
 
-          if (allEntries.length === 0) {
-            console.log('ERROR: No entries found across all content files');
-            process.exit(1);
-          }
+          if (allEntries.length === 0) { console.log('ERROR: No entries found'); process.exit(1); }
 
           let activeDays;
           if (daysOverride) {
             activeDays = daysOverride.split(',').map(function(d) { return d.trim(); }).filter(Boolean);
-            console.log('Override days: ' + activeDays.join(', '));
           } else {
-            const weekNums = contentFiles
-              .map(function(f) { return parseInt(f.match(/week(\d+)/)[1]); })
-              .sort(function(a,b) { return b-a; });
-            const topWeekFile = path.join(srcDir, 'week' + weekNums[0] + '-content.js');
-            const source = fs.readFileSync(topWeekFile, 'utf8');
+            const weekNums = contentFiles.map(function(f) { return parseInt(f.match(/week(\d+)/)[1]); }).sort(function(a,b){ return b-a; });
+            const source = fs.readFileSync(path.join(srcDir, 'week' + weekNums[0] + '-content.js'), 'utf8');
             const dm = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
             const nm = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
             const arr = dm ? dm[1] : (nm ? nm[1] : null);
-            try { const ca2 = arr ? arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '') : '[]'; activeDays = eval(ca2).map(function(e){return e.id;}).filter(Boolean); }
+            try { activeDays = arr ? eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g,'')).map(function(e){return e.id;}).filter(Boolean) : []; }
             catch(e) { activeDays = []; }
-            console.log('Auto week' + weekNums[0] + ': ' + activeDays.join(', '));
           }
 
-          const activeEntries = allEntries.filter(function(e) {
-            return e.id && activeDays.indexOf(e.id) !== -1;
-          });
-
-          if (activeEntries.length === 0) {
-            console.log('ERROR: No entries found for: ' + activeDays.join(', '));
-            console.log('Available: ' + allEntries.map(function(e){return e.id;}).join(', '));
-            process.exit(1);
-          }
-
-          console.log('Active entries: ' + activeEntries.map(function(e){return e.id;}).join(', '));
+          const activeEntries = allEntries.filter(function(e) { return e.id && activeDays.indexOf(e.id) !== -1; });
+          if (activeEntries.length === 0) { console.log('ERROR: No entries found for: ' + activeDays.join(', ')); process.exit(1); }
 
           const dayAssets = {};
-          const FALLBACK_QUERIES = [
-            'person working laptop city lifestyle vertical',
-            'financial freedom success outdoor vertical',
-          ];
+          const FALLBACK_QUERIES = ['aesthetic lifestyle vertical', 'financial freedom vertical'];
           for (const entry of activeEntries) {
-            const queries = (entry.bRollQueries || entry.pexelsSearchTerms || []).slice(0, 6);
+            const queries = (entry.bRollQueries || []).slice(0, 6);
             const padded  = queries.slice();
             let fi = 0;
-            while (padded.length < 6) { padded.push(FALLBACK_QUERIES[fi % FALLBACK_QUERIES.length]); fi++; }
+            while (padded.length < 6) { padded.push(FALLBACK_QUERIES[fi++ % FALLBACK_QUERIES.length]); }
             dayAssets[entry.id] = padded.map(function(q, i) { return { id: entry.id + '_clip' + (i+1), q: q }; });
           }
 
           const dayMeta = {};
           for (const entry of activeEntries) {
             if (!entry.id) continue;
-            dayMeta[entry.id] = {
-              youtubeTitle:       entry.youtubeTitle       || '',
-              youtubeDescription: entry.youtubeDescription || '',
-              tiktokCaption:      entry.tiktokCaption      || '',
-              pinnedComment:      entry.pinnedComment      || '',
-              music:              entry.music              || '',
-              musicMood:          entry.musicMood          || '',
-            };
+            dayMeta[entry.id] = { youtubeTitle: entry.youtubeTitle || '', youtubeDescription: entry.youtubeDescription || '', tiktokCaption: entry.tiktokCaption || '', pinnedComment: entry.pinnedComment || '', music: entry.music || '', musicMood: entry.musicMood || '' };
           }
 
           const weekLabel = daysOverride ? 'override' : 'week-auto';
@@ -357,7 +404,7 @@ jobs:
             fs.appendFileSync(envFile, 'ACTIVE_WEEK=' + weekLabel + '\n');
             fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + activeDays.join(' ') + '\n');
           }
-          console.log('week_info written. Days: ' + activeDays.join(', '));
+          console.log('Active days: ' + activeDays.join(', '));
           DETECTEOF
 
       # =========================================================================
@@ -365,28 +412,26 @@ jobs:
       # =========================================================================
       - name: Download SFX
         run: |
-          sudo apt-get install -y ffmpeg -q --fix-missing 2>/dev/null || true
           mkdir -p public/sfx
           node << 'SFXEOF'
           const https=require('https'),http=require('http'),fs=require('fs');
-          const POOLS={
-            whoosh:['https://cdn.freesound.org/previews/416/416474_5121236-lq.mp3'],
-            impact:['https://cdn.freesound.org/previews/321/321485_5260872-lq.mp3'],
-            ping:  ['https://cdn.freesound.org/previews/411/411090_5121236-lq.mp3'],
-            cheer: ['https://cdn.freesound.org/previews/397/397353_4284968-lq.mp3'],
-          };
+          const POOLS={whoosh:['https://cdn.freesound.org/previews/416/416474_5121236-lq.mp3'],impact:['https://cdn.freesound.org/previews/321/321485_5260872-lq.mp3'],ping:['https://cdn.freesound.org/previews/411/411090_5121236-lq.mp3'],cheer:['https://cdn.freesound.org/previews/397/397353_4284968-lq.mp3']};
           const dl=function(url,dest){return new Promise(function(resolve,reject){const f=fs.createWriteStream(dest);const get=function(u){const lib=u.startsWith('https')?https:http;lib.get(u,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302){f.close();return get(res.headers.location);}if(res.statusCode!==200){f.close();reject(new Error('HTTP '+res.statusCode));return;}res.pipe(f);f.on('finish',function(){f.close();resolve();});}).on('error',function(e){f.close();reject(e);});};get(url);});};
           (async function(){for(const slot of Object.keys(POOLS)){const dest='public/sfx/'+slot+'.mp3';let ok=false;for(const url of POOLS[slot]){try{await dl(url,dest);if(fs.existsSync(dest)&&fs.statSync(dest).size>5000){ok=true;break;}if(fs.existsSync(dest))fs.unlinkSync(dest);}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);}}if(!ok)console.log('SFX WARN: '+slot+' failed');else console.log('SFX OK: '+slot);}})();
           SFXEOF
           for SFX in whoosh impact ping cheer; do
             FILE="public/sfx/${SFX}.mp3"
             if [ ! -f "$FILE" ] || [ ! -s "$FILE" ]; then
-              ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -q:a 9 -acodec libmp3lame "$FILE" -y -loglevel error 2>/dev/null || echo "Silent fallback: $SFX"
+              ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1 -q:a 9 -acodec libmp3lame "$FILE" -y -loglevel error 2>/dev/null || true
             fi
           done
 
       # =========================================================================
-      # DOWNLOAD MUSIC
+      # DOWNLOAD MUSIC (Jamendo -> Pixabay -> fallback)
+      # SONILO TIP: After rendering, visit sonilo.com to generate AI-matched music.
+      #   Upload your rendered .mp4, download the generated track, and save it as
+      #   public/music/dayXX.mp3 to replace the auto-downloaded music.
+      #   Then re-run render with skip_groq_gen=true and days_override=dayXX.
       # =========================================================================
       - name: Download music (Jamendo -> Pixabay -> fallback)
         env:
@@ -397,70 +442,21 @@ jobs:
           node << 'MUSICEOF'
           const https=require('https'),http=require('http'),fs=require('fs');
           const JK=process.env.JAMENDO_CLIENT_ID||'',PK=process.env.PIXABAY_API_KEY||'';
-          const JTAGS={punchy:'energetic+upbeat',motivational:'motivational+positive',confident:'jazz+cool',dramatic:'epic+dramatic',focused:'ambient+focus',rebellious:'rock+energetic',uplifting:'uplifting+happy',melancholic:'sad+melancholic',chill:'chill+lofi',emotional:'emotional+piano',epic:'epic+orchestral'};
-          const PMOODS={punchy:'energetic',motivational:'uplifting',confident:'corporate',dramatic:'dramatic',focused:'calm',rebellious:'upbeat',uplifting:'happy',melancholic:'melancholic'};
-          const DMOODS={};for(let i=1;i<=90;i++)DMOODS[i]=['punchy','motivational','confident','dramatic','focused','rebellious','uplifting','melancholic'][i%8];
+          const JTAGS={punchy:'energetic+upbeat',motivational:'motivational+positive',confident:'jazz+cool',dramatic:'epic+dramatic',focused:'ambient+focus',rebellious:'rock+energetic',uplifting:'uplifting+happy',melancholic:'sad+melancholic',chill:'chill+lofi'};
+          const PMOODS={punchy:'energetic',motivational:'uplifting',confident:'corporate',dramatic:'dramatic',focused:'calm',rebellious:'upbeat',uplifting:'happy'};
           const fetchJSON=function(url){return new Promise(function(resolve,reject){const lib=url.startsWith('https')?https:http;lib.get(url,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302)return fetchJSON(res.headers.location).then(resolve).catch(reject);let d='';res.on('data',function(c){d+=c;});res.on('end',function(){try{resolve(JSON.parse(d));}catch(e){reject(e);}});}).on('error',reject);});};
           const dlFile=function(url,dest){return new Promise(function(resolve,reject){const f=fs.createWriteStream(dest);const get=function(u){const lib=u.startsWith('https')?https:http;lib.get(u,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302){f.close();return get(res.headers.location);}if(res.statusCode!==200){f.close();reject(new Error('HTTP '+res.statusCode));return;}res.pipe(f);f.on('finish',function(){f.close();resolve();});}).on('error',function(e){f.close();reject(e);});};get(url);});};
           const sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
-          async function tryJamendo(mood,dest){if(!JK)return false;try{const url='https://api.jamendo.com/v3.0/tracks/?client_id='+JK+'&format=json&limit=10&tags='+(JTAGS[mood]||'motivational+upbeat')+'&order=popularity_week&audioformat=mp32&license_cc=1';const data=await fetchJSON(url);const tracks=(data.results||[]).filter(function(t){return t.audio;});if(!tracks.length)throw new Error('no results');const pick=tracks[Math.floor(Math.random()*Math.min(5,tracks.length))];await dlFile(pick.audio,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('Jamendo OK: '+pick.name);return true;}if(fs.existsSync(dest))fs.unlinkSync(dest);throw new Error('too small');}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);console.log('Jamendo fail: '+e.message);return false;}}
-          async function tryPixabay(mood,dest){if(!PK)return false;try{const url='https://pixabay.com/api/videos/music/?key='+PK+'&mood='+(PMOODS[mood]||'upbeat')+'&per_page=10';const data=await fetchJSON(url);const hits=(data.hits||[]).filter(function(h){return h.audio;});if(!hits.length)throw new Error('no results');const pick=hits[Math.floor(Math.random()*Math.min(5,hits.length))];await dlFile(pick.audio,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('Pixabay music OK');return true;}if(fs.existsSync(dest))fs.unlinkSync(dest);throw new Error('too small');}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);console.log('Pixabay music fail: '+e.message);return false;}}
-          (async function(){let info={days:[],dayMeta:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}const days=info.days||[];if(!days.length){console.log('No days');process.exit(0);}const results=[];for(const day of days){const dest='public/music/'+day+'.mp3';if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){console.log('CACHED: '+day);results.push({day:day,status:'cached'});continue;}if(fs.existsSync(dest))fs.unlinkSync(dest);const dn=parseInt(day.replace('day',''));const mood=((info.dayMeta||{})[day]||{}).musicMood||DMOODS[dn]||'motivational';console.log('--- '+day+' mood:'+mood+' ---');let ok=await tryJamendo(mood,dest);if(!ok){await sleep(1000);ok=await tryPixabay(mood,dest);}if(!ok){let p=dn-1;while(p>=1){const pf='public/music/day'+p+'.mp3';if(fs.existsSync(pf)&&fs.statSync(pf).size>50000){fs.copyFileSync(pf,dest);console.log(day+': fallback from day'+p);ok=true;break;}p--;}}results.push({day:day,status:ok?'ok':'failed',mood:mood});}fs.writeFileSync('out/.music_results.json',JSON.stringify(results,null,2));console.log('Music done: '+results.filter(function(r){return r.status!=='failed';}).length+'/'+days.length);})();
+          async function tryJamendo(mood,dest){if(!JK)return false;try{const url='https://api.jamendo.com/v3.0/tracks/?client_id='+JK+'&format=json&limit=10&tags='+(JTAGS[mood]||'motivational+upbeat')+'&order=popularity_week&audioformat=mp32&license_cc=1';const data=await fetchJSON(url);const tracks=(data.results||[]).filter(function(t){return t.audio;});if(!tracks.length)throw new Error('no results');const pick=tracks[Math.floor(Math.random()*Math.min(5,tracks.length))];await dlFile(pick.audio,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('Jamendo OK: '+pick.name);return true;}throw new Error('too small');}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);console.log('Jamendo fail: '+e.message);return false;}}
+          async function tryPixabay(mood,dest){if(!PK)return false;try{const url='https://pixabay.com/api/videos/music/?key='+PK+'&mood='+(PMOODS[mood]||'upbeat')+'&per_page=10';const data=await fetchJSON(url);const hits=(data.hits||[]).filter(function(h){return h.audio;});if(!hits.length)throw new Error('no results');const pick=hits[Math.floor(Math.random()*Math.min(5,hits.length))];await dlFile(pick.audio,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('Pixabay music OK');return true;}throw new Error('too small');}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);console.log('Pixabay music fail: '+e.message);return false;}}
+          (async function(){let info={days:[],dayMeta:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}const days=info.days||[];if(!days.length){console.log('No days');process.exit(0);}const results=[];for(const day of days){const dest='public/music/'+day+'.mp3';if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){console.log('CACHED: '+day);results.push({day:day,status:'cached'});continue;}if(fs.existsSync(dest))fs.unlinkSync(dest);const dn=parseInt(day.replace('day',''));const mood=((info.dayMeta||{})[day]||{}).musicMood||'motivational';console.log('--- '+day+' mood:'+mood+' ---');let ok=await tryJamendo(mood,dest);if(!ok){await sleep(1000);ok=await tryPixabay(mood,dest);}if(!ok){let p=dn-1;while(p>=1){const pf='public/music/day'+p+'.mp3';if(fs.existsSync(pf)&&fs.statSync(pf).size>50000){fs.copyFileSync(pf,dest);console.log(day+': fallback from day'+p);ok=true;break;}p--;}}results.push({day:day,status:ok?'ok':'failed',mood:mood});}fs.writeFileSync('out/.music_results.json',JSON.stringify(results,null,2));console.log('Music done: '+results.filter(function(r){return r.status!=='failed';}).length+'/'+days.length);})();
           MUSICEOF
-
-      - name: Fetch TikTok trending sounds
-        continue-on-error: true
-        run: |
-          node << 'TIKTOKEOF'
-          const https=require('https'),fs=require('fs');
-          https.get('https://ads.tiktok.com/creative_radar_api/v1/popular_trend/music/list?period=7&page=1&limit=10',{headers:{'User-Agent':'Mozilla/5.0','Accept':'application/json','Referer':'https://ads.tiktok.com/'}},function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){try{const data=JSON.parse(d);const items=(data&&data.data&&data.data.list)||[];const sounds=items.slice(0,10).map(function(item,i){return{rank:i+1,title:(item.music_info&&item.music_info.title)||'Trending #'+(i+1),artist:(item.music_info&&item.music_info.author)||'Unknown',usageCount:item.post_num||'--'};});fs.writeFileSync('out/.trending_sounds.json',JSON.stringify(sounds,null,2));console.log('Trending: '+sounds.length+' sounds');}catch(e){console.log('TikTok fetch failed: '+e.message);fs.writeFileSync('out/.trending_sounds.json','[]');}});}).on('error',function(e){console.log('TikTok error: '+e.message);fs.writeFileSync('out/.trending_sounds.json','[]');});
-          TIKTOKEOF
-
-      - name: Run pre-render validator
-        run: |
-          if [ -f "validate.js" ]; then node validate.js && echo "Validation passed" || exit 1
-          else echo "validate.js not found -- skipping"; fi
-
-      # =========================================================================
-      # AI HOOK SCORER
-      # =========================================================================
-      - name: AI Hook Scorer (Groq quality gate)
-        continue-on-error: true
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          NTFY_TOPIC:   ${{ secrets.NTFY_TOPIC }}
-        run: |
-          node << 'SCOREREOF'
-          const fs=require('fs'),path=require('path'),https=require('https');
-          const GROQ=process.env.GROQ_API_KEY||'', NTFY=process.env.NTFY_TOPIC||'';
-          function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
-          let entries=[];
-          if(fs.existsSync('src/current-video.js')){try{const src=fs.readFileSync('src/current-video.js','utf8');const m=src.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);if(m)entries=[JSON.parse(m[1])];}catch(e){}}
-          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const src=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=src.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);const nm=src.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g,''));}catch(e){}}}
-          if(!entries.length){console.log('No entries -- skipping scorer');process.exit(0);}
-          const hooks=entries.map(function(e){return{id:e.id,hook:((e.overlays||[])[0]||{}).text||'N/A',topic:e.title||e.id};});
-          const hookLines=hooks.map(function(h,i){return (i+1)+'. ['+h.id+'] Hook: "'+h.hook.replace(/\n/g,' ')+'" | Topic: "'+h.topic+'"';}).join('\n');
-          const prompt='Score each hook 1-10 for TikTok/Shorts viral potential.\nCriteria: scroll-stop power, 2-second readability, emotional trigger, specificity, compliance.\n\nHooks:\n'+hookLines+'\n\nReturn ONLY valid JSON:\n{"scores":[{"id":"day37","score":8,"strength":"brief","weakness":"brief","suggestion":"improved hook"}],"avgScore":7.5,"weakest":"day37","strongest":"day37","readyToRender":true,"summary":"one line"}';
-          function callGroq(p){return new Promise(function(resolve,reject){const body=JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:800,temperature:0.3,messages:[{role:'user',content:p}]});const req=https.request({hostname:'api.groq.com',path:'/openai/v1/chat/completions',method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'Authorization':'Bearer '+GROQ}},function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){resolve({status:res.statusCode,body:d});});});req.on('error',reject);req.write(body);req.end();});}
-          function sendNtfy(msg,title){if(!NTFY)return Promise.resolve();const data=Buffer.from(msg);return new Promise(function(resolve){const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle(title),'Tags':'robot','Priority':'default'}},function(res){resolve();});req.on('error',function(){resolve();});req.write(data);req.end();});}
-          (async function(){if(!GROQ){console.log('No GROQ key -- skipping');process.exit(0);}try{const res=await callGroq(prompt);if(res.status!==200){console.log('Groq HTTP '+res.status);process.exit(0);}const data=JSON.parse(res.body);const raw=(((data.choices||[])[0]||{}).message||{}).content||'';const result=JSON.parse(raw.replace(/```json|```/g,'').trim());console.log('\n=== HOOK SCORES ===\nAvg: '+result.avgScore+'/10 | Strongest: '+result.strongest+' | Weakest: '+result.weakest);const lines=[];(result.scores||[]).forEach(function(s){const label=s.score>=8?'GREAT':s.score>=7?'GOOD':'WEAK';console.log(s.id+' ['+s.score+'/10] '+label+' -- '+(s.strength||'').slice(0,60));lines.push(label+' '+s.id+': '+s.score+'/10 - '+(s.strength||'').slice(0,50));});lines.push('');lines.push(result.summary||'');await sendNtfy(lines.join('\n'),'DWB Hook Scores Avg '+result.avgScore+'/10 '+(result.readyToRender?'READY':'NEEDS WORK'));}catch(e){console.log('Scorer error (non-fatal): '+e.message);}})();
-          SCOREREOF
 
       # =========================================================================
       # DOWNLOAD BACKGROUND VIDEOS
-      # PRIORITY ORDER:
-      #   1. Personal Library (any .mp4 in public/videos/ NOT matching dayXX_clipY.mp4)
-      #      -- If 6+ personal clips exist, 6 are picked RANDOMLY per day. No API calls.
-      #   2. API download from Pixabay + Pexels
-      #   3. KenBurns photo fallback (Unsplash)
-      #   4. Dark placeholder
-      #
-      # HOW TO USE PERSONAL LIBRARY:
-      #   Just upload your phone videos to public/videos/ in GitHub.
-      #   ANY filename works. No renaming. No editing content files.
-      #   The pipeline detects them automatically and picks 6 randomly per day.
+      # Priority: Personal Library (public/videos/) -> API -> KenBurns -> Placeholder
       # =========================================================================
-      - name: Download background videos (6 clips per day)
+      - name: Download background videos
         env:
           PIXABAY_API_KEY:     ${{ secrets.PIXABAY_API_KEY }}
           PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
@@ -469,47 +465,15 @@ jobs:
           mkdir -p public/videos
           node << 'VIDEOEOF'
           const https=require('https'),http=require('http'),fs=require('fs'),path=require('path');
-          const PXB=process.env.PIXABAY_API_KEY||'', PXL=process.env.PEXELS_API_KEY||'', UNS=process.env.UNSPLASH_ACCESS_KEY||'';
+          const PXB=process.env.PIXABAY_API_KEY||'',PXL=process.env.PEXELS_API_KEY||'',UNS=process.env.UNSPLASH_ACCESS_KEY||'';
           let info={dayAssets:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
           const DA=info.dayAssets||{};if(!Object.keys(DA).length){console.log('No dayAssets -- skipping');process.exit(0);}
-
-          // =====================================================================
-          // PERSONAL LIBRARY DETECTION
-          // Scans public/videos/ for any file that is NOT a pipeline-generated
-          // clip (i.e. not matching dayXX_clipY.mp4 pattern).
-          // These are your uploaded phone videos.
-          // =====================================================================
-          const PIPELINE_CLIP_PATTERN = /^day\d+_clip\d+\.mp4$/;
-          const videoDir = 'public/videos';
-          const allFiles = fs.existsSync(videoDir) ? fs.readdirSync(videoDir) : [];
-          const personalLibrary = allFiles.filter(function(f) {
-            if (!f.toLowerCase().endsWith('.mp4')) return false;
-            if (PIPELINE_CLIP_PATTERN.test(f)) return false;
-            const fullPath = path.join(videoDir, f);
-            const sz = fs.statSync(fullPath).size;
-            return sz > 100000; // must be at least 100KB -- real video not a placeholder
-          });
-
-          if (personalLibrary.length > 0) {
-            console.log('\n=== PERSONAL LIBRARY DETECTED: ' + personalLibrary.length + ' clips ===');
-            personalLibrary.forEach(function(f) { console.log('  + ' + f); });
-          } else {
-            console.log('\n=== No personal library clips found -- will use API downloads ===');
-          }
-
-          // Seeded shuffle so same day always gets same clips in a single run
-          // but different days get different selections
-          function shuffleForDay(arr, daySeed) {
-            const copy = arr.slice();
-            let seed = daySeed;
-            for (let i = copy.length - 1; i > 0; i--) {
-              seed = (seed * 1664525 + 1013904223) & 0xffffffff;
-              const j = Math.abs(seed) % (i + 1);
-              const tmp = copy[i]; copy[i] = copy[j]; copy[j] = tmp;
-            }
-            return copy;
-          }
-
+          const PIPELINE_CLIP_PATTERN=/^day\d+_clip\d+\.mp4$/;
+          const videoDir='public/videos';
+          const allFiles=fs.existsSync(videoDir)?fs.readdirSync(videoDir):[];
+          const personalLibrary=allFiles.filter(function(f){if(!f.toLowerCase().endsWith('.mp4'))return false;if(PIPELINE_CLIP_PATTERN.test(f))return false;const fp=path.join(videoDir,f);const sz=fs.statSync(fp).size;return sz>100000;});
+          if(personalLibrary.length>0){console.log('\n=== PERSONAL LIBRARY: '+personalLibrary.length+' clips ===');personalLibrary.forEach(function(f){console.log('  + '+f);});}else{console.log('\n=== No personal library -- using API ===');}
+          function shuffleForDay(arr,seed){const copy=arr.slice();let s=seed;for(let i=copy.length-1;i>0;i--){s=(s*1664525+1013904223)&0xffffffff;const j=Math.abs(s)%(i+1);const tmp=copy[i];copy[i]=copy[j];copy[j]=tmp;}return copy;}
           function score(c){let s=0;const w=c.width||0,h=c.height||0;if(w>=1080&&h>=1920)s+=50;else if(h>=w)s+=30;else if(w>=1920)s+=20;else s+=5;if(h>w)s+=20;const d=c.duration||0;if(d>=8&&d<=15)s+=15;else if(d>=5)s+=8;else if(d>0)s+=3;const sz=c.fileSize||0;if(sz>5000000)s+=15;else if(sz>1000000)s+=8;return s;}
           function fetchJSON(url,headers){return new Promise(function(resolve,reject){const lib=url.startsWith('https')?https:http;lib.get(url,{headers:Object.assign({'User-Agent':'DWB/1.0'},headers||{})},function(res){if(res.statusCode===301||res.statusCode===302)return fetchJSON(res.headers.location,headers).then(resolve).catch(reject);let d='';res.on('data',function(c){d+=c;});res.on('end',function(){try{resolve(JSON.parse(d));}catch(e){reject(new Error('JSON parse failed'));}});}).on('error',reject);});}
           function dlFile(url,dest){return new Promise(function(resolve,reject){const f=fs.createWriteStream(dest);const get=function(u){const lib=u.startsWith('https')?https:http;lib.get(u,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302){f.close();return get(res.headers.location);}if(res.statusCode!==200){f.close();reject(new Error('HTTP '+res.statusCode));return;}res.pipe(f);f.on('finish',function(){f.close();resolve();});}).on('error',function(e){f.close();reject(e);});};get(url);});}
@@ -517,105 +481,61 @@ jobs:
           async function fetchPixabay(q){if(!PXB)return[];try{let data=await fetchJSON('https://pixabay.com/api/videos/?key='+PXB+'&q='+encodeURIComponent(q)+'&orientation=vertical&per_page=15&video_type=film&min_height=720');let hits=data.hits||[];if(!hits.length){data=await fetchJSON('https://pixabay.com/api/videos/?key='+PXB+'&q='+encodeURIComponent(q)+'&per_page=15&video_type=film');hits=data.hits||[];}return hits.map(function(hit){const v=hit.videos||{},best=v.large||v.medium||v.small||{};if(!best.url)return null;return{source:'Pixabay',url:best.url,width:best.width||0,height:best.height||0,duration:hit.duration||0,fileSize:best.size||0,score:0};}).filter(Boolean);}catch(e){console.log('Pixabay fail: '+e.message);return[];}}
           async function fetchPexels(q){if(!PXL)return[];try{const data=await fetchJSON('https://api.pexels.com/videos/search?query='+encodeURIComponent(q)+'&per_page=15&orientation=portrait&min_width=720',{'Authorization':PXL});const cands=[];for(const vid of (data.videos||[])){const files=(vid.video_files||[]).filter(function(f){return f.file_type==='video/mp4';}).sort(function(a,b){return(b.width*b.height)-(a.width*a.height);});if(!files.length)continue;const best=files[0];cands.push({source:'Pexels',url:best.link,width:best.width||vid.width||0,height:best.height||vid.height||0,duration:vid.duration||0,fileSize:0,score:0});}return cands;}catch(e){console.log('Pexels fail: '+e.message);return[];}}
           async function makeKenBurns(q,dest){const tmp=dest+'_tmp.jpg';try{const cq=encodeURIComponent(q.replace(/vertical/gi,'').trim());let imgUrl='https://source.unsplash.com/1080x1920/?'+cq;if(UNS){try{const ud=await fetchJSON('https://api.unsplash.com/search/photos?query='+cq+'&per_page=3&orientation=portrait&client_id='+UNS);const r=(ud.results||[])[0];if(r)imgUrl=r.urls.regular||r.urls.small;}catch(e){}}await dlFile(imgUrl,tmp);if(!fs.existsSync(tmp)||fs.statSync(tmp).size<10000)throw new Error('img too small');const{execSync}=require('child_process');execSync('ffmpeg -loop 1 -i "'+tmp+'" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -t 10 -c:v libx264 -pix_fmt yuv420p -y "'+dest+'" 2>/dev/null',{stdio:'pipe'});if(fs.existsSync(tmp))fs.unlinkSync(tmp);const vs=fs.existsSync(dest)?fs.statSync(dest).size:0;if(vs<10000)throw new Error('kb too small');console.log('KenBurns OK: '+path.basename(dest));return true;}catch(e){console.log('KenBurns fail: '+e.message);if(fs.existsSync(tmp))fs.unlinkSync(tmp);return false;}}
-
-          (async function(){
-            let dl=0,skip=0,fail=0,kb=0,personal=0;
-
-            for(const day of Object.keys(DA)){
-              const assets=DA[day];
-              const dayNum=parseInt(day.replace('day',''))||50;
-              console.log('\n=== '+day+' ('+assets.length+' clips needed) ===');
-
-              // ==================================================================
-              // PRIORITY 1: PERSONAL LIBRARY
-              // If 6+ personal clips exist, randomly pick 6 and copy them as
-              // the day's pipeline clips. Zero API calls needed.
-              // Different days get different random selections (seeded by day number).
-              // ==================================================================
-              if (personalLibrary.length >= 6) {
-                const shuffled = shuffleForDay(personalLibrary, dayNum);
-                const picked   = shuffled.slice(0, 6);
-                console.log(day + ': Using personal library -- picked:');
-                let allGood = true;
-                for (let i = 0; i < picked.length; i++) {
-                  const src  = path.join(videoDir, picked[i]);
-                  const dest = path.join(videoDir, day + '_clip' + (i+1) + '.mp4');
-                  if (fs.existsSync(dest) && fs.statSync(dest).size > 50000) {
-                    console.log('  SKIP (already exists): ' + path.basename(dest));
-                    skip++;
-                    continue;
-                  }
-                  try {
-                    fs.copyFileSync(src, dest);
-                    console.log('  COPIED: ' + picked[i] + ' -> ' + path.basename(dest));
-                    personal++;
-                  } catch(e) {
-                    console.log('  COPY FAILED: ' + picked[i] + ': ' + e.message);
-                    allGood = false;
-                  }
-                }
-                if (allGood) continue; // all 6 personal clips assigned -- move to next day
-              } else if (personalLibrary.length > 0 && personalLibrary.length < 6) {
-                // Partial library -- use what we have, fill rest with API
-                console.log(day + ': Partial personal library (' + personalLibrary.length + ' clips) -- mixing with API');
-                const shuffled = shuffleForDay(personalLibrary, dayNum);
-                for (let i = 0; i < Math.min(shuffled.length, assets.length); i++) {
-                  const src  = path.join(videoDir, shuffled[i % shuffled.length]);
-                  const dest = path.join(videoDir, day + '_clip' + (i+1) + '.mp4');
-                  if (!fs.existsSync(dest) || fs.statSync(dest).size < 50000) {
-                    try { fs.copyFileSync(src, dest); personal++; console.log('  PERSONAL: ' + shuffled[i % shuffled.length]); } catch(e) {}
-                  }
-                }
-              }
-
-              // ==================================================================
-              // PRIORITY 2: API DOWNLOAD (Pixabay + Pexels)
-              // Only runs if personal library has fewer than 6 clips.
-              // ==================================================================
-              for(const item of assets){
-                const dest='public/videos/'+item.id+'.mp4';
-                if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){console.log('SKIP: '+item.id);skip++;continue;}
-                if(fs.existsSync(dest))fs.unlinkSync(dest);
-                console.log('API fetch: '+item.id+' | "'+item.q+'"');
-                const[pc,xc]=await Promise.all([fetchPixabay(item.q),fetchPexels(item.q)]);
-                const all=pc.concat(xc);
-                all.forEach(function(c){c.score=score(c);});
-                all.sort(function(a,b){return b.score-a.score;});
-                let ok=false;
-                for(const clip of all){try{await dlFile(clip.url,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('OK: '+item.id+' from '+clip.source);dl++;ok=true;break;}if(fs.existsSync(dest))fs.unlinkSync(dest);}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);}}
-
-                // PRIORITY 3: KenBurns photo fallback
-                if(!ok){ok=await makeKenBurns(item.q,dest);if(ok)kb++;}
-
-                // PRIORITY 4: Dark placeholder
-                if(!ok){try{const{execSync}=require('child_process');execSync('ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "'+dest+'" -y -loglevel error',{stdio:'pipe'});if(fs.existsSync(dest)&&fs.statSync(dest).size>1000){console.log('Placeholder: '+item.id);dl++;}else{console.log('FAIL: '+item.id);fail++;}}catch(fe){console.log('FAIL: '+item.id);fail++;}}
-                await sleep(300);
-              }
-            }
-            console.log('\n--- Video Summary ---');
-            console.log('Personal library: '+personal+' | API downloaded: '+dl+' | Cached: '+skip+' | KenBurns: '+kb+' | Failed: '+fail);
-            if(personal>0) console.log('Your phone videos were used for this render.');
-          })();
+          (async function(){let dl=0,skip=0,fail=0,kb=0,personal=0;for(const day of Object.keys(DA)){const assets=DA[day];const dayNum=parseInt(day.replace('day',''))||50;console.log('\n=== '+day+' ===');if(personalLibrary.length>=6){const shuffled=shuffleForDay(personalLibrary,dayNum);const picked=shuffled.slice(0,6);let allGood=true;for(let i=0;i<picked.length;i++){const src=path.join(videoDir,picked[i]);const dest=path.join(videoDir,day+'_clip'+(i+1)+'.mp4');if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){skip++;continue;}try{fs.copyFileSync(src,dest);console.log('  PERSONAL: '+picked[i]+' -> clip'+(i+1));personal++;}catch(e){console.log('  COPY FAILED: '+e.message);allGood=false;}}if(allGood)continue;}else if(personalLibrary.length>0){const shuffled=shuffleForDay(personalLibrary,dayNum);for(let i=0;i<Math.min(shuffled.length,assets.length);i++){const src=path.join(videoDir,shuffled[i%shuffled.length]);const dest=path.join(videoDir,day+'_clip'+(i+1)+'.mp4');if(!fs.existsSync(dest)||fs.statSync(dest).size<50000){try{fs.copyFileSync(src,dest);personal++;}catch(e){}}}}for(const item of assets){const dest='public/videos/'+item.id+'.mp4';if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){console.log('SKIP: '+item.id);skip++;continue;}if(fs.existsSync(dest))fs.unlinkSync(dest);console.log('API fetch: '+item.id+' | "'+item.q+'"');const[pc,xc]=await Promise.all([fetchPixabay(item.q),fetchPexels(item.q)]);const all=pc.concat(xc);all.forEach(function(c){c.score=score(c);});all.sort(function(a,b){return b.score-a.score;});let ok=false;for(const clip of all){try{await dlFile(clip.url,dest);const sz=fs.existsSync(dest)?fs.statSync(dest).size:0;if(sz>50000){console.log('OK: '+item.id+' from '+clip.source);dl++;ok=true;break;}if(fs.existsSync(dest))fs.unlinkSync(dest);}catch(e){if(fs.existsSync(dest))fs.unlinkSync(dest);}}if(!ok){ok=await makeKenBurns(item.q,dest);if(ok)kb++;}if(!ok){try{const{execSync}=require('child_process');execSync('ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "'+dest+'" -y -loglevel error',{stdio:'pipe'});if(fs.existsSync(dest)&&fs.statSync(dest).size>1000){dl++;}else{fail++;}}catch(fe){fail++;}}await sleep(300);}console.log('Personal: '+personal+' | Downloaded: '+dl+' | Cached: '+skip+' | KenBurns: '+kb+' | Failed: '+fail);}})();
           VIDEOEOF
 
-      - name: Verify clips and create placeholders for any missing
+      # =========================================================================
+      # v10 NEW: CLIP LOOP NORMALIZATION
+      # Short clips (under 20s) are extended by looping to 30s using ffmpeg.
+      # This is the PRIMARY fix for the "static frame" issue between overlay segments.
+      # Remotion's OffthreadVideo loop prop is unreliable for very short clips.
+      # =========================================================================
+      - name: Normalize clip lengths (loop short clips to 30s)
+        run: |
+          DAYS_INPUT="${{ github.event.inputs.days_override }}"
+          DAYS="${DAYS_INPUT:-${{ env.ACTIVE_DAYS }}}"
+          [ -n "$DAYS_INPUT" ] && DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
+
+          for DAY in $DAYS; do
+            for i in 1 2 3 4 5 6; do
+              CLIP="public/videos/${DAY}_clip${i}.mp4"
+              if [ ! -f "$CLIP" ] || [ ! -s "$CLIP" ]; then continue; fi
+
+              # Get clip duration in seconds
+              DURATION=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$CLIP" 2>/dev/null || echo "0")
+              DURATION_INT=$(echo "$DURATION" | cut -d. -f1)
+
+              if [ -n "$DURATION_INT" ] && [ "$DURATION_INT" -lt 20 ] 2>/dev/null; then
+                NORMALIZED="public/videos/${DAY}_clip${i}_norm.mp4"
+                echo "Looping short clip (${DURATION_INT}s): ${DAY}_clip${i}.mp4 -> 30s"
+                ffmpeg -stream_loop 10 -i "$CLIP" \
+                  -t 30 \
+                  -c:v libx264 -preset fast -crf 20 -pix_fmt yuv420p \
+                  -an \
+                  -y "$NORMALIZED" -loglevel error && \
+                mv "$NORMALIZED" "$CLIP" && \
+                echo "  Normalized: ${DAY}_clip${i}.mp4" || \
+                echo "  Normalization failed (keeping original): ${DAY}_clip${i}.mp4"
+              else
+                echo "  OK (${DURATION_INT}s): ${DAY}_clip${i}.mp4"
+              fi
+            done
+          done
+
+      - name: Verify clips and create placeholders
         run: |
           node << 'VERIFYEOF'
           const fs=require('fs'),{execSync}=require('child_process');
           let info={};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){process.exit(0);}
           const allAssets=Object.values(info.dayAssets||{}).flat();
           let created=0,ok=0;
-          for(const item of allAssets){
-            const dest='public/videos/'+item.id+'.mp4';
-            if(fs.existsSync(dest)&&fs.statSync(dest).size>5000){ok++;continue;}
-            console.log('Creating placeholder: '+dest);
-            try{execSync('ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "'+dest+'" -y -loglevel error');created++;}catch(e){console.log('FAILED: '+dest);}
-          }
-          console.log('Clips OK: '+ok+' | Placeholders created: '+created);
+          for(const item of allAssets){const dest='public/videos/'+item.id+'.mp4';if(fs.existsSync(dest)&&fs.statSync(dest).size>5000){ok++;continue;}console.log('Creating placeholder: '+dest);try{execSync('ffmpeg -f lavfi -i color=c=0x080c14:size=1080x1920:rate=30 -t 5 -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an "'+dest+'" -y -loglevel error');created++;}catch(e){console.log('FAILED: '+dest);}}
+          console.log('Clips OK: '+ok+' | Placeholders: '+created);
           VERIFYEOF
-          echo "=== Clip inventory ==="
-          find public/videos -name "*.mp4" -size +1k 2>/dev/null | sort | head -30
-          find public/videos -name "*.mp4" -size +1k 2>/dev/null | wc -l | xargs echo "Total valid clips:"
+
+      - name: Run pre-render validator
+        run: |
+          if [ -f "validate.js" ]; then node validate.js && echo "OK" || exit 1; else echo "validate.js not found -- skipping"; fi
 
       # =========================================================================
       # RENDER
@@ -624,35 +544,26 @@ jobs:
         run: |
           BROWSER="./node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell"
           DAYS_INPUT="${{ github.event.inputs.days_override }}"
-          if [ -n "$DAYS_INPUT" ]; then
-            RENDER_DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
-          else
-            RENDER_DAYS="${{ env.ACTIVE_DAYS }}"
-          fi
-          echo "=== Rendering days: $RENDER_DAYS ==="
+          if [ -n "$DAYS_INPUT" ]; then RENDER_DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
+          else RENDER_DAYS="${{ env.ACTIVE_DAYS }}"; fi
+          echo "=== Rendering: $RENDER_DAYS ==="
           FAILED=0; PASSED=0; START=$(date +%s)
           for DAY in $RENDER_DAYS; do
             DS=$(date +%s)
             echo "--- Rendering ${DAY} ---"
             npx remotion render src/index.jsx ${DAY} out/${DAY}_final.mp4 \
               --browser-executable="$BROWSER" \
-              --codec=h264 \
-              --crf=18 \
-              --jpeg-quality=85 \
-              --scale=1 \
-              --concurrency=2
+              --codec=h264 --crf=18 --jpeg-quality=85 --scale=1 --concurrency=2
             CODE=$?
             SECS=$(($(date +%s)-DS))
             if [ $CODE -eq 0 ] && [ -f "out/${DAY}_final.mp4" ]; then
               SZ=$(du -sh "out/${DAY}_final.mp4" | cut -f1)
-              echo "DONE ${DAY} in ${SECS}s (${SZ})"
-              PASSED=$((PASSED+1))
+              echo "DONE ${DAY} in ${SECS}s (${SZ})"; PASSED=$((PASSED+1))
             else
-              echo "FAILED ${DAY} after ${SECS}s (exit code: $CODE)"
-              FAILED=$((FAILED+1))
+              echo "FAILED ${DAY} after ${SECS}s (exit: $CODE)"; FAILED=$((FAILED+1))
             fi
           done
-          echo "--- Total: ${PASSED} passed, ${FAILED} failed in $(($(date +%s)-START))s ---"
+          echo "Total: ${PASSED} passed, ${FAILED} failed"
           if [ $FAILED -gt 0 ]; then exit 1; fi
 
       - name: Audio normalization (-14 LUFS)
@@ -663,10 +574,9 @@ jobs:
           [ -n "$DAYS_INPUT" ] && DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
           for DAY in $DAYS; do
             FILE="out/${DAY}_final.mp4"
-            if [ -f "$FILE" ]; then
+            [ -f "$FILE" ] && \
               ffmpeg -i "$FILE" -af loudnorm=I=-14:TP=-1.5:LRA=11 -c:v copy -c:a aac -b:a 192k "out/${DAY}_norm.mp4" -y -loglevel error \
-                && mv "out/${DAY}_norm.mp4" "$FILE" && echo "Normalized: ${DAY}" || echo "Normalization skipped: ${DAY}"
-            fi
+              && mv "out/${DAY}_norm.mp4" "$FILE" && echo "Normalized: ${DAY}" || echo "Skipped: ${DAY}"
           done
 
       - name: Generate thumbnails
@@ -678,7 +588,7 @@ jobs:
           for DAY in $DAYS; do
             [ -f "out/${DAY}_final.mp4" ] && \
               ffmpeg -ss 00:00:01 -i "out/${DAY}_final.mp4" -frames:v 1 -q:v 2 "out/thumbs/${DAY}_thumb.jpg" -y -loglevel error \
-              && echo "Thumb OK: ${DAY}" || echo "Thumb failed: ${DAY}"
+              && echo "Thumb: ${DAY}" || true
           done
 
       - name: Generate GIF teasers
@@ -692,7 +602,7 @@ jobs:
             if [ -f "$FILE" ]; then
               ffmpeg -t 3 -i "$FILE" -vf "fps=12,scale=270:-1:flags=lanczos,palettegen" -y "out/gifs/${DAY}_pal.png" -loglevel error && \
               ffmpeg -t 3 -i "$FILE" -i "out/gifs/${DAY}_pal.png" -lavfi "fps=12,scale=270:-1:flags=lanczos[x];[x][1:v]paletteuse" -y "out/gifs/${DAY}_hook.gif" -loglevel error \
-              && echo "GIF OK: ${DAY}" || echo "GIF failed: ${DAY}"
+              && echo "GIF: ${DAY}" || true
               rm -f "out/gifs/${DAY}_pal.png"
             fi
           done
@@ -707,34 +617,82 @@ jobs:
           if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const src=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=src.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);const nm=src.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g,''));}catch(e){}}}
           function toSRT(f){const ms=Math.round((f/30)*1000);const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000),ms2=ms%1000;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+','+String(ms2).padStart(3,'0');}
           let gen=0;for(const e of entries){if(!e.overlays||!e.id)continue;const lines=[];let idx=1;for(const o of e.overlays){if(!o.text||o.startFrame===undefined||o.endFrame===undefined)continue;lines.push(String(idx));lines.push(toSRT(o.startFrame)+' --> '+toSRT(o.endFrame));lines.push(o.text.replace(/\n/g,' '));lines.push('');idx++;}if(lines.length){fs.mkdirSync('out/srt',{recursive:true});fs.writeFileSync('out/srt/'+e.id+'.srt',lines.join('\n'));gen++;}}
-          console.log('Generated '+gen+' SRT files');
+          console.log('SRT files: '+gen);
           SRTEOF
 
       # =========================================================================
-      # YOUTUBE UPLOAD
+      # YOUTUBE UPLOAD -- v10
+      # Now schedules based on PUBLISH_SLOT:
+      #   Slot A (7AM EAT)  --> publishes at 4AM UTC NEXT DAY
+      #   Slot B (12PM EAT) --> publishes at 9AM UTC NEXT DAY
+      #   Slot C (7PM EAT)  --> publishes at 4PM UTC NEXT DAY (original behavior)
+      # This ensures videos are live at peak times for each audience segment.
       # =========================================================================
-      - name: Upload to YouTube (scheduled publishing)
+      - name: Upload to YouTube (slot-aware scheduling)
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
           NTFY_TOPIC:            ${{ secrets.NTFY_TOPIC }}
           DAYS_OVERRIDE:         ${{ github.event.inputs.days_override }}
+          PUBLISH_SLOT:          ${{ env.PUBLISH_SLOT }}
+          PUBLISH_UTC_HOUR:      ${{ env.PUBLISH_UTC_HOUR }}
         run: |
           node << 'YTEOF'
           const fs=require('fs'),https=require('https');
           const CID=process.env.YOUTUBE_CLIENT_ID||'',CS=process.env.YOUTUBE_CLIENT_SECRET||'',RT=process.env.YOUTUBE_REFRESH_TOKEN||'',NTFY=process.env.NTFY_TOPIC||'';
+          const SLOT=process.env.PUBLISH_SLOT||'C';
+          const PUBLISH_UTC_HOUR=parseInt(process.env.PUBLISH_UTC_HOUR||'16');
+
           function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
           async function sendNtfy(msg,title,priority,tags){if(!NTFY)return;const data=Buffer.from(msg);return new Promise(function(resolve){const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle(title),'Tags':tags||'warning','Priority':priority||'high'}},function(res){resolve();});req.on('error',function(){resolve();});req.write(data);req.end();});}
+
           if(!CID||!CS||!RT){console.log('YouTube secrets not set -- skipping');fs.writeFileSync('out/.upload_results.json','[]');process.exit(0);}
+
           let info={week:'unknown',days:[],dayMeta:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
           const overrideDays=process.env.DAYS_OVERRIDE?process.env.DAYS_OVERRIDE.split(',').map(function(d){return d.trim();}).filter(Boolean):info.days;
-          const days=overrideDays.length>0?overrideDays:info.days, dayMeta=info.dayMeta||{};
+          const days=overrideDays.length>0?overrideDays:info.days,dayMeta=info.dayMeta||{};
+
           function httpsReq(opts,body){return new Promise(function(resolve,reject){const req=https.request(opts,function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){resolve({status:res.statusCode,body:d,headers:res.headers});});});req.on('error',reject);if(body)req.write(body);req.end();});}
-          async function getToken(){const body='client_id='+encodeURIComponent(CID)+'&client_secret='+encodeURIComponent(CS)+'&refresh_token='+encodeURIComponent(RT)+'&grant_type=refresh_token';const res=await httpsReq({hostname:'oauth2.googleapis.com',path:'/token',method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','Content-Length':Buffer.byteLength(body)}},body);if(res.status!==200){let ed={};try{ed=JSON.parse(res.body);}catch(e){}if(ed.error==='invalid_grant'){await sendNtfy('YouTube Token EXPIRED.\n\nFIX:\n1. Go to developers.google.com/oauthplayground\n2. Select YouTube Data API v3\n3. Authorize and get new refresh token\n4. Update YOUTUBE_REFRESH_TOKEN in GitHub Secrets\n5. Re-run\n\nVideos saved as artifacts -- not lost.','ACTION REQUIRED YouTube Token Expired','urgent','x,warning');console.log('ERROR: invalid_grant -- see ntfy');fs.writeFileSync('out/.upload_results.json','[]');process.exit(1);}throw new Error('Token failed: '+res.body.slice(0,200));}return JSON.parse(res.body).access_token;}
+
+          async function getToken(){const body='client_id='+encodeURIComponent(CID)+'&client_secret='+encodeURIComponent(CS)+'&refresh_token='+encodeURIComponent(RT)+'&grant_type=refresh_token';const res=await httpsReq({hostname:'oauth2.googleapis.com',path:'/token',method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','Content-Length':Buffer.byteLength(body)}},body);if(res.status!==200){let ed={};try{ed=JSON.parse(res.body);}catch(e){}if(ed.error==='invalid_grant'){await sendNtfy('YouTube Token EXPIRED.\n\nFIX:\n1. Go to developers.google.com/oauthplayground\n2. Select YouTube Data API v3\n3. Authorize and get new refresh token\n4. Update YOUTUBE_REFRESH_TOKEN in GitHub Secrets','ACTION REQUIRED YouTube Token Expired','urgent','x,warning');console.log('ERROR: invalid_grant');fs.writeFileSync('out/.upload_results.json','[]');process.exit(1);}throw new Error('Token failed: '+res.body.slice(0,200));}return JSON.parse(res.body).access_token;}
+
           async function uploadVideo(token,filePath,meta,publishAt){const fileSize=fs.statSync(filePath).size;const initBody=JSON.stringify({snippet:{title:meta.title||'Daily Wealth Building',description:meta.description||'',tags:meta.tags||['personalfinance','wealthbuilding'],categoryId:'27'},status:{privacyStatus:'private',publishAt:publishAt,selfDeclaredMadeForKids:false}});const initRes=await httpsReq({hostname:'www.googleapis.com',path:'/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json','Content-Length':Buffer.byteLength(initBody),'X-Upload-Content-Type':'video/mp4','X-Upload-Content-Length':fileSize}},initBody);if(initRes.status!==200)throw new Error('Init HTTP '+initRes.status);const uploadUrl=initRes.headers.location;if(!uploadUrl)throw new Error('No upload URL');const CHUNK=8*1024*1024,fd=fs.openSync(filePath,'r');let uploaded=0,videoId=null;while(uploaded<fileSize){const cs=Math.min(CHUNK,fileSize-uploaded),buf=Buffer.alloc(cs);fs.readSync(fd,buf,0,cs,uploaded);const uo=new URL(uploadUrl);const cr=await httpsReq({hostname:uo.hostname,path:uo.pathname+uo.search,method:'PUT',headers:{'Authorization':'Bearer '+token,'Content-Length':cs,'Content-Range':'bytes '+uploaded+'-'+(uploaded+cs-1)+'/'+fileSize}},buf);uploaded+=cs;if(cr.status===200||cr.status===201){videoId=JSON.parse(cr.body).id;break;}if(cr.status!==308)throw new Error('Chunk HTTP '+cr.status);console.log('Uploading... '+Math.round((uploaded/fileSize)*100)+'%');}fs.closeSync(fd);return videoId;}
-          function getPublishAt(idx){const now=new Date();const base=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+1,16,0,0));return new Date(base.getTime()+idx*86400000).toISOString();}
-          (async function(){let uploaded=0,failed=0;const results=[],scheduledVideos=[];let token;try{token=await getToken();console.log('Token OK');}catch(e){console.log('ERROR: '+e.message);fs.writeFileSync('out/.upload_results.json','[]');process.exit(1);}for(let i=0;i<days.length;i++){const day=days[i],filePath='out/'+day+'_final.mp4';if(!fs.existsSync(filePath)){console.log('SKIP: '+day+' not found');results.push({day:day,status:'failed',error:'not found'});failed++;continue;}const meta=dayMeta[day]||{},publishAt=getPublishAt(i);console.log('\nUploading: '+day+' -> '+publishAt);try{const vid=await uploadVideo(token,filePath,{title:meta.youtubeTitle||day+' | Daily Wealth Building',description:meta.youtubeDescription||'',tags:['personalfinance','wealthbuilding','financialfreedom','moneytips']},publishAt);console.log('UPLOADED: '+day+' -> https://youtu.be/'+vid);results.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,status:'ok',publishAt:publishAt});scheduledVideos.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,publishAt:publishAt,notifScheduled:false,pinnedComment:meta.pinnedComment||''});uploaded++;}catch(e){console.log('FAIL: '+day+': '+e.message);results.push({day:day,status:'failed',error:e.message});failed++;}}fs.writeFileSync('out/.upload_results.json',JSON.stringify(results,null,2));let existing=[];try{existing=JSON.parse(fs.readFileSync('scheduled-videos.json','utf8'));}catch(e){}fs.writeFileSync('scheduled-videos.json',JSON.stringify(existing.filter(function(v){return days.indexOf(v.day)===-1;}).concat(scheduledVideos),null,2));console.log('\nUploaded: '+uploaded+' | Failed: '+failed);})();
+
+          // v10: Slot-aware publish time
+          // Publishes at the same slot time the NEXT day (allows algorithm warmup)
+          function getPublishAt(idx){
+            const now  = new Date();
+            const base = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, PUBLISH_UTC_HOUR, 0, 0));
+            return new Date(base.getTime() + idx * 86400000).toISOString();
+          }
+
+          const slotName = { A: '7AM EAT', B: '12PM EAT', C: '7PM EAT' }[SLOT] || 'unknown';
+          console.log('Upload slot: ' + SLOT + ' (' + slotName + ') -- videos will publish at ' + PUBLISH_UTC_HOUR + ':00 UTC');
+
+          (async function(){
+            let uploaded=0,failed=0;
+            const results=[],scheduledVideos=[];
+            let token;
+            try{token=await getToken();console.log('Token OK');}catch(e){console.log('ERROR: '+e.message);fs.writeFileSync('out/.upload_results.json','[]');process.exit(1);}
+            for(let i=0;i<days.length;i++){
+              const day=days[i],filePath='out/'+day+'_final.mp4';
+              if(!fs.existsSync(filePath)){console.log('SKIP: '+day+' not found');results.push({day:day,status:'failed',error:'not found'});failed++;continue;}
+              const meta=dayMeta[day]||{},publishAt=getPublishAt(i);
+              console.log('\nUploading: '+day+' [Slot '+SLOT+'] -> publishes at '+publishAt);
+              try{
+                const vid=await uploadVideo(token,filePath,{title:meta.youtubeTitle||day+' | Daily Wealth Building',description:meta.youtubeDescription||'',tags:['personalfinance','wealthbuilding','financialfreedom','moneytips']},publishAt);
+                console.log('UPLOADED: '+day+' -> https://youtu.be/'+vid+' | Publishes: '+publishAt);
+                results.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,status:'ok',publishAt:publishAt,slot:SLOT});
+                scheduledVideos.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,publishAt:publishAt,slot:SLOT,notifScheduled:false,pinnedComment:meta.pinnedComment||''});
+                uploaded++;
+              }catch(e){console.log('FAIL: '+day+': '+e.message);results.push({day:day,status:'failed',error:e.message});failed++;}
+            }
+            fs.writeFileSync('out/.upload_results.json',JSON.stringify(results,null,2));
+            let existing=[];try{existing=JSON.parse(fs.readFileSync('scheduled-videos.json','utf8'));}catch(e){}
+            fs.writeFileSync('scheduled-videos.json',JSON.stringify(existing.filter(function(v){return days.indexOf(v.day)===-1;}).concat(scheduledVideos),null,2));
+            console.log('\nUploaded: '+uploaded+' | Failed: '+failed+' | Slot: '+SLOT+' ('+slotName+')');
+          })();
           YTEOF
 
       - name: Commit scheduled-videos.json
@@ -769,45 +727,6 @@ jobs:
           git diff --staged --quiet || git commit -m "chore: video counter update [skip ci]"
           git push 2>/dev/null || true
 
-      - name: Reddit auto-post
-        if: success()
-        continue-on-error: true
-        env:
-          REDDIT_CLIENT_ID:     ${{ secrets.REDDIT_CLIENT_ID }}
-          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
-          REDDIT_USERNAME:      ${{ secrets.REDDIT_USERNAME }}
-          REDDIT_PASSWORD:      ${{ secrets.REDDIT_PASSWORD }}
-        run: |
-          node << 'REDDITEOF'
-          const fs=require('fs'),https=require('https');
-          const CID=process.env.REDDIT_CLIENT_ID||'',CS=process.env.REDDIT_CLIENT_SECRET||'',UN=process.env.REDDIT_USERNAME||'',PW=process.env.REDDIT_PASSWORD||'';
-          if(!CID||!UN){console.log('Reddit creds not set');process.exit(0);}
-          let info={},uploads=[];try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}
-          const ok=uploads.filter(function(u){return u.status==='ok';});if(!ok.length){console.log('No uploads -- skipping');process.exit(0);}
-          const first=ok[0],meta=((info.dayMeta||{})[first.day])||{};
-          function httpsReq(opts,body){return new Promise(function(resolve,reject){const req=https.request(opts,function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){resolve({status:res.statusCode,body:d});});});req.on('error',reject);if(body)req.write(body);req.end();});}
-          (async function(){try{const creds=Buffer.from(CID+':'+CS).toString('base64'),b='grant_type=password&username='+encodeURIComponent(UN)+'&password='+encodeURIComponent(PW);const tres=await httpsReq({hostname:'www.reddit.com',path:'/api/v1/access_token',method:'POST',headers:{'Authorization':'Basic '+creds,'Content-Type':'application/x-www-form-urlencoded','User-Agent':'DWB/1.0 by '+UN,'Content-Length':Buffer.byteLength(b)}},b);const td=JSON.parse(tres.body);if(!td.access_token)throw new Error('Reddit auth failed');const token=td.access_token,title=(meta.youtubeTitle||first.day+' -- Daily Wealth Building');for(const sub of['personalfinance','financialindependence']){const pb=new URLSearchParams({sr:sub,kind:'link',title:title.slice(0,300),url:first.url,resubmit:'true',nsfw:'false',spoiler:'false'}).toString();const pres=await httpsReq({hostname:'oauth.reddit.com',path:'/api/submit',method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/x-www-form-urlencoded','User-Agent':'DWB/1.0 by '+UN,'Content-Length':Buffer.byteLength(pb)}},pb);const pd=JSON.parse(pres.body);if(pd.success===false)console.log(sub+' FAILED');else console.log('Posted to r/'+sub);await new Promise(function(r){setTimeout(r,2000);});}}catch(e){console.log('Reddit ERROR: '+e.message);}})();
-          REDDITEOF
-
-      - name: Schedule notifications
-        if: success()
-        env:
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: |
-          node << 'NOTIFEOF'
-          const fs=require('fs'),https=require('https');
-          const NTFY=process.env.NTFY_TOPIC||'';
-          function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
-          let sv=[];try{sv=JSON.parse(fs.readFileSync('scheduled-videos.json','utf8'));}catch(e){}
-          const nv=sv.filter(function(v){return !v.notifScheduled&&v.publishAt;});
-          if(!nv.length){console.log('No new notifications');process.exit(0);}
-          function sendNtfy(msg,title){if(!NTFY)return Promise.resolve();const data=Buffer.from(msg);return new Promise(function(resolve){const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle(title),'Tags':'calendar','Priority':'default'}},function(res){resolve();});req.on('error',function(){resolve();});req.write(data);req.end();});}
-          (async function(){const lines=['DWB Schedule:',''];nv.forEach(function(v){const d=new Date(v.publishAt);lines.push(v.day+' -> '+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()]+' '+d.getUTCHours()+':00 UTC -> '+v.url);v.notifScheduled=true;});await sendNtfy(lines.join('\n'),'DWB '+nv.length+' Videos Scheduled');fs.writeFileSync('scheduled-videos.json',JSON.stringify(sv,null,2));})();
-          NOTIFEOF
-
-      # =========================================================================
-      # UPDATE README -- FIXED: git stash resolves unstaged changes conflict
-      # =========================================================================
       - name: Update README
         if: always()
         run: |
@@ -817,11 +736,13 @@ jobs:
           const runId=process.env.GITHUB_RUN_ID||'0';
           const runNum=process.env.GITHUB_RUN_NUMBER||'0';
           const repo=process.env.GITHUB_REPOSITORY||'dailywealthbuilding/DWB-Videos';
+          const slot=process.env.PUBLISH_SLOT||'C';
+          const slotName={A:'7AM EAT (Asia/AU)',B:'12PM EAT (Europe)',C:'7PM EAT (US)'}[slot]||slot;
           let info={week:'unknown',days:[]},uploads=[];
           try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
           try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}
           const rendered=(info.days||[]).filter(function(d){return fs.existsSync('out/'+d+'_final.mp4');});
-          const links=uploads.filter(function(u){return u.status==='ok';}).map(function(u){return '- ['+u.day+']('+u.url+')';}).join('\n');
+          const links=uploads.filter(function(u){return u.status==='ok';}).map(function(u){return '- ['+u.day+']('+u.url+') -- publishes '+u.publishAt;}).join('\n');
           const readme=[
             '# DWB -- Daily Wealth Building',
             '',
@@ -829,30 +750,33 @@ jobs:
             '',
             '![Render](https://img.shields.io/badge/Last_Render-'+today+'-gold) ![Videos](https://img.shields.io/badge/Videos-'+rendered.length+'/'+(info.days||[]).length+'-'+(rendered.length===(info.days||[]).length?'brightgreen':'orange')+')',
             '',
-            '## Latest -- '+today,
+            '## Latest -- '+today+' [Slot: '+slotName+']',
             '',
             '| | |',
             '|---|---|',
             '| Week | '+info.week+' |',
             '| Days | '+(info.days||[]).join(', ')+' |',
             '| Rendered | '+rendered.length+'/'+(info.days||[]).length+' |',
+            '| Publish Slot | '+slotName+' |',
             '| Run | [#'+runNum+'](https://github.com/'+repo+'/actions/runs/'+runId+') |',
             '',
             links?'## YouTube Links\n\n'+links:'',
             '',
-            '## Pipeline',
+            '## Pipeline v10',
             '',
-            '- Groq AI auto-generates fresh script each run',
-            '- Remotion 4.0 + GitHub Actions | 7PM EAT daily',
+            '- Groq AI auto-generates scripts | 3 slots: 7AM / 12PM / 7PM EAT',
+            '- Remotion 4.0 + GitHub Actions | Node 20',
             '- 1080x1920 30fps | CRF 18 | h264',
-            '- 6 clips/video | Custom phone videos + Pixabay + Pexels fallback',
-            '- safeTitle() on all ntfy headers -- no emoji crashes',
+            '- Personal clip library + Pixabay/Pexels API fallback',
+            '- Short clips auto-looped to 30s (no frozen frames)',
+            '- Clip catalog system (auto-ID for uploads)',
+            '- Storyset illustration support (public/illustrations/)',
             '',
             '---',
             '_Auto-updated '+today+'_'
           ].filter(function(l){return l!==undefined;}).join('\n');
           fs.writeFileSync('README.md',readme);
-          console.log('README updated');
+          console.log('README updated -- Slot: '+slot);
           READMEEOF
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -866,7 +790,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dwb-${{ env.ACTIVE_WEEK }}-run${{ github.run_number }}
+          name: dwb-${{ env.ACTIVE_WEEK }}-slot${{ env.PUBLISH_SLOT }}-run${{ github.run_number }}
           path: |
             out/*.mp4
             out/thumbs/*.jpg
@@ -878,22 +802,25 @@ jobs:
       - name: Send final ntfy notification
         if: always()
         env:
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOPIC:   ${{ secrets.NTFY_TOPIC }}
+          PUBLISH_SLOT: ${{ env.PUBLISH_SLOT }}
         run: |
           node << 'FINALEOF'
           const https=require('https'),fs=require('fs');
           const NTFY=process.env.NTFY_TOPIC||'';
+          const SLOT=process.env.PUBLISH_SLOT||'C';
+          const slotName={A:'7AM EAT',B:'12PM EAT',C:'7PM EAT'}[SLOT]||SLOT;
           function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
           const isOk=process.env.GITHUB_JOB_STATUS!=='failure';
-          let info={week:'unknown',days:[]},uploads=[],music=[],trending=[];
-          try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}try{music=JSON.parse(fs.readFileSync('out/.music_results.json','utf8'));}catch(e){}try{trending=JSON.parse(fs.readFileSync('out/.trending_sounds.json','utf8'));}catch(e){}
-          const lines=['DWB Pipeline '+(isOk?'COMPLETE':'FAILED'),info.week+' | '+new Date().toISOString().slice(0,10),''];
-          let passed=0;for(const day of (info.days||[])){const mp4='out/'+day+'_final.mp4',sz=fs.existsSync(mp4)?Math.round(fs.statSync(mp4).size/1024/1024):0;if(sz>0){const u=uploads.find(function(x){return x.day===day;}),m=music.find(function(x){return x.day===day;});lines.push(day+' OK '+sz+'MB'+(m?' ['+m.mood+']':'')+(u&&u.status==='ok'?' -> '+u.url:''));passed++;}else lines.push(day+' FAILED');}
+          let info={week:'unknown',days:[]},uploads=[],music=[];
+          try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}try{music=JSON.parse(fs.readFileSync('out/.music_results.json','utf8'));}catch(e){}
+          const lines=['DWB '+(isOk?'COMPLETE':'FAILED')+' [Slot '+SLOT+': '+slotName+']',info.week+' | '+new Date().toISOString().slice(0,10),''];
+          let passed=0;for(const day of (info.days||[])){const mp4='out/'+day+'_final.mp4',sz=fs.existsSync(mp4)?Math.round(fs.statSync(mp4).size/1024/1024):0;if(sz>0){const u=uploads.find(function(x){return x.day===day;});const m=music.find(function(x){return x.day===day;});lines.push(day+' OK '+sz+'MB'+(m?' ['+m.mood+']':'')+(u&&u.status==='ok'?' -> '+u.url:''));passed++;}else lines.push(day+' FAILED');}
           lines.push('','Result: '+passed+'/'+(info.days||[]).length);
-          const ytc=uploads.filter(function(u){return u.status==='ok';}).length;if(ytc>0)lines.push('YouTube: '+ytc+' uploaded');
-          if(trending.length){lines.push('','Trending:');trending.slice(0,3).forEach(function(s){lines.push('  '+s.rank+'. '+s.title);});}
-          if(!NTFY){console.log('NTFY not set');process.exit(0);}
+          lines.push('','TikTok: Post manually at '+slotName);
+          lines.push('Sonilo.com: Upload video for AI music match');
+          if(!NTFY){console.log('No ntfy');process.exit(0);}
           const msg=lines.join('\n'),data=Buffer.from(msg);
-          const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle('DWB '+(isOk?'DONE':'FAILED')+' '+info.week+' '+passed+'/'+(info.days||[]).length),'Priority':isOk?'default':'high','Tags':isOk?'white_check_mark':'x'}},function(res){console.log('ntfy: '+res.statusCode);});
+          const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle('DWB '+(isOk?'DONE':'FAILED')+' '+SLOT+' '+passed+'/'+(info.days||[]).length),'Priority':isOk?'default':'high','Tags':isOk?'white_check_mark':'x'}},function(res){console.log('ntfy: '+res.statusCode);});
           req.on('error',function(){});req.write(data);req.end();
           FINALEOF
