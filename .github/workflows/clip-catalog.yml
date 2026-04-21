@@ -1,0 +1,219 @@
+name: Clip Catalog -- Auto-ID Uploaded Videos
+
+# Runs automatically when you push new .mp4 files to public/videos/
+# Also available manually via Actions tab
+
+on:
+  push:
+    paths:
+      - 'public/videos/**.mp4'
+      - 'public/videos/**.MP4'
+  workflow_dispatch:
+
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # =========================================================================
+      # CATALOG SCRIPT
+      # Scans public/videos/ for any file NOT matching dayXX_clipY.mp4 pattern.
+      # These are your personal clips.
+      # Assigns IDs (c001, c002, ...) to new files.
+      # Auto-detects mood tags from filename keywords.
+      # Saves public/clip-manifest.json
+      # =========================================================================
+      - name: Scan and catalog clips
+        run: |
+          node << 'CATALOGEOF'
+          const fs   = require('fs');
+          const path = require('path');
+
+          const VIDEO_DIR  = 'public/videos';
+          const MANIFEST   = 'public/clip-manifest.json';
+          const PIPELINE_PATTERN = /^day\d+_clip\d+\.mp4$/i;
+
+          // Load existing manifest
+          let manifest = { version: 1, clips: {}, idCounter: 0 };
+          try {
+            manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+            if (!manifest.clips)     manifest.clips     = {};
+            if (!manifest.idCounter) manifest.idCounter = 0;
+          } catch(e) {
+            console.log('No existing manifest -- creating fresh one.');
+          }
+
+          // Scan all .mp4 files in public/videos/
+          const allFiles = fs.existsSync(VIDEO_DIR)
+            ? fs.readdirSync(VIDEO_DIR).filter(f => f.toLowerCase().endsWith('.mp4'))
+            : [];
+
+          // Filter to personal clips only (not pipeline-generated dayXX_clipY.mp4)
+          const personalClips = allFiles.filter(f => !PIPELINE_PATTERN.test(f));
+
+          console.log('Total .mp4 files found: '   + allFiles.length);
+          console.log('Personal clips found: '      + personalClips.length);
+          console.log('Pipeline clips (excluded): ' + (allFiles.length - personalClips.length));
+
+          // Build reverse lookup: filename -> existing ID
+          const filenameToId = {};
+          for (const [id, entry] of Object.entries(manifest.clips)) {
+            filenameToId[entry.filename] = id;
+          }
+
+          let newCount = 0;
+          let removedCount = 0;
+
+          // Add new clips
+          for (const filename of personalClips) {
+            const fullPath = path.join(VIDEO_DIR, filename);
+            const size     = fs.existsSync(fullPath) ? fs.statSync(fullPath).size : 0;
+
+            // Skip tiny files (not real videos)
+            if (size < 100000) {
+              console.log('SKIP (too small): ' + filename + ' (' + size + ' bytes)');
+              continue;
+            }
+
+            if (filenameToId[filename]) {
+              // Already catalogued
+              continue;
+            }
+
+            // Assign new ID
+            manifest.idCounter++;
+            const id = 'c' + String(manifest.idCounter).padStart(3, '0');
+
+            // Auto-detect mood tags from filename
+            const tags = detectTags(filename);
+            const mood = detectPrimaryMood(tags);
+
+            manifest.clips[id] = {
+              filename:  filename,
+              tags:      tags,
+              mood:      mood,
+              addedAt:   new Date().toISOString().slice(0, 10),
+              sizeKB:    Math.round(size / 1024),
+            };
+
+            filenameToId[filename] = id;
+            newCount++;
+            console.log('NEW [' + id + ']: ' + filename + ' | mood: ' + mood + ' | tags: ' + tags.join(', '));
+          }
+
+          // Remove entries for deleted files
+          const currentFilenames = new Set(personalClips);
+          for (const [id, entry] of Object.entries(manifest.clips)) {
+            if (!currentFilenames.has(entry.filename)) {
+              console.log('REMOVED [' + id + ']: ' + entry.filename + ' (file deleted)');
+              delete manifest.clips[id];
+              removedCount++;
+            }
+          }
+
+          // Save updated manifest
+          fs.mkdirSync('public', { recursive: true });
+          fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2));
+
+          console.log('\n=== CATALOG SUMMARY ===');
+          console.log('Total catalogued clips: ' + Object.keys(manifest.clips).length);
+          console.log('New this run: '    + newCount);
+          console.log('Removed: '         + removedCount);
+          console.log('\nFull catalog:');
+          for (const [id, entry] of Object.entries(manifest.clips)) {
+            console.log('  [' + id + '] ' + entry.filename.padEnd(40) + '| ' + entry.mood + ' | ' + entry.tags.join(', '));
+          }
+
+          // ============================================================
+          // TAG DETECTION FUNCTIONS
+          // ============================================================
+          function detectTags(filename) {
+            const f = filename.toLowerCase().replace(/[^a-z0-9]/g, ' ');
+            const tags = new Set();
+
+            if (/money|cash|wallet|dollar|bank|coin|wealth|rich|invest|stock|finance|ksh|usd/.test(f)) tags.add('money');
+            if (/city|street|urban|downtown|building|skyline|traffic|nairobi|cbd/.test(f))             tags.add('city');
+            if (/desk|laptop|work|office|notebook|plan|typing|keyboard|computer/.test(f))              tags.add('focus');
+            if (/cafe|coffee|morning|cup|drink|latte|table|cozy|breakfast/.test(f))                    tags.add('calm');
+            if (/nature|outdoor|trees|forest|mountain|park|green|sky|field/.test(f))                   tags.add('peaceful');
+            if (/mirror|selfie|fashion|outfit|style|aesthetic|minimal|clean|white|room|bedroom/.test(f)) tags.add('aesthetic');
+            if (/luxury|mansion|car|watch|travel|holiday|beach|pool|hotel|villa/.test(f))              tags.add('luxury');
+            if (/hands|rings|jewelry|nails|wrist|bracelet|fingers/.test(f))                            tags.add('aesthetic');
+            if (/candle|book|reading|flower|plant|window|curtain|light|sofa|couch/.test(f))            tags.add('calm');
+            if (/phone|scroll|screen|app|notification|chat|tiktok|youtube/.test(f))                    tags.add('focus');
+            if (/walk|run|freedom|open|wide|space|horizon|path/.test(f))                               tags.add('peaceful');
+            if (/dynamic|fast|energy|motion|blur|crowd|busy|hustle/.test(f))                           tags.add('energy');
+
+            if (tags.size === 0) tags.add('general');
+            return [...tags];
+          }
+
+          function detectPrimaryMood(tags) {
+            const priority = ['money', 'luxury', 'energy', 'focus', 'aesthetic', 'calm', 'peaceful', 'city', 'general'];
+            for (const mood of priority) {
+              if (tags.includes(mood)) return mood;
+            }
+            return 'general';
+          }
+
+          CATALOGEOF
+
+      - name: Commit clip manifest
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash --include-untracked 2>/dev/null || true
+          git pull --rebase origin main 2>/dev/null || true
+          git stash pop 2>/dev/null || true
+          git add public/clip-manifest.json
+          git diff --staged --quiet && echo "No changes to manifest" || \
+            git commit -m "chore: update clip manifest [skip ci]"
+          git push 2>/dev/null || true
+
+      - name: Send ntfy notification
+        if: always()
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          node << 'NTFYEOF'
+          const https   = require('https');
+          const fs      = require('fs');
+          const NTFY    = process.env.NTFY_TOPIC || '';
+          if (!NTFY) { console.log('No ntfy topic'); process.exit(0); }
+
+          let manifest = { clips: {} };
+          try { manifest = JSON.parse(fs.readFileSync('public/clip-manifest.json', 'utf8')); } catch(e) {}
+
+          const total   = Object.keys(manifest.clips).length;
+          const entries = Object.entries(manifest.clips);
+          const lines   = ['Clip Library Updated', '', 'Total clips: ' + total, ''];
+          entries.slice(-5).forEach(function([id, e]) {
+            lines.push('[' + id + '] ' + e.filename.slice(0, 30) + ' -- ' + e.mood);
+          });
+          if (entries.length > 5) lines.push('...and ' + (entries.length - 5) + ' more');
+
+          const msg  = lines.join('\n');
+          const data = Buffer.from(msg);
+          const req  = https.request({
+            hostname: 'ntfy.sh', port: 443, path: '/' + NTFY, method: 'POST',
+            headers: {
+              'Content-Type': 'text/plain', 'Content-Length': data.length,
+              'Title': 'DWB Clips Catalogued (' + total + ' total)',
+              'Tags': 'movie_camera', 'Priority': 'default',
+            },
+          }, function(res) { console.log('ntfy: ' + res.statusCode); });
+          req.on('error', function() {});
+          req.write(data);
+          req.end();
+          NTFYEOF
