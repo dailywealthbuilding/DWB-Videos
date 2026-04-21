@@ -6,15 +6,13 @@
 
 | | |
 |---|---|
-| Week | override |
-| Days | day37 |
+| Week | groq-generated |
+| Days | day50 |
 | Clips | 8 per video |
 | Slot | 7PM EAT (US) |
-| Run | [#59](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24725538432) |
+| Run | [#60](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24735637178) |
 
-## YouTube Links
 
-- [day37](https://youtu.be/vAo-rkd5i-g) publishes 2026-04-22T16:00:00.000Z
 
 ## Pipeline v10.1
 
