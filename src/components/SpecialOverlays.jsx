@@ -1,8 +1,11 @@
-// src/components/SpecialOverlays.jsx -- DWB v9.0
+// src/components/SpecialOverlays.jsx -- DWB v10.0
 // FILE PATH: src/components/SpecialOverlays.jsx
 //
-// Main export: SpecialOverlays -- channel watermark, day counter, progress bar
-// Sub-exports: StatsDashboard, FloatingInfoCard, LowerThird, SceneNumber (milestone use)
+// v10 CHANGES:
+//   1. Watermark opacity reduced to 0.60 (was 0.75) -- less intrusive on light clips
+//   2. DAY badge has softer border -- fits aesthetic aesthetic better
+//   3. Progress bar kept -- works great as a content rhythm signal
+//   4. All sub-exports unchanged (StatsDashboard, FloatingInfoCard, etc.)
 
 import {
   AbsoluteFill,
@@ -13,8 +16,7 @@ import {
 } from 'remotion';
 
 // =============================================================================
-// MAIN EXPORT -- used by VideoComposition on every video
-// Shows: @DailyWealthBuilding watermark + DAY XX/90 badge + progress bar
+// MAIN EXPORT -- watermark + DAY badge + progress bar
 // =============================================================================
 export const SpecialOverlays = ({ videoId = 'day37', totalFrames = 900 }) => {
   const frame = useCurrentFrame();
@@ -24,9 +26,9 @@ export const SpecialOverlays = ({ videoId = 'day37', totalFrames = 900 }) => {
   // Fade in on entry
   const opacity = interpolate(frame, [0, 20], [0, 1], { extrapolateRight: 'clamp' });
 
-  // Progress bar width 0 -> 100% over video duration
+  // Progress bar 0 -> 100% over video duration
   const progressW = interpolate(frame, [0, totalFrames], [0, 100], {
-    extrapolateLeft: 'clamp',
+    extrapolateLeft:  'clamp',
     extrapolateRight: 'clamp',
   });
 
@@ -34,50 +36,52 @@ export const SpecialOverlays = ({ videoId = 'day37', totalFrames = 900 }) => {
     <AbsoluteFill style={{ pointerEvents: 'none', zIndex: 50 }}>
 
       {/* TOP LEFT: @DailyWealthBuilding watermark */}
+      {/* v10: opacity reduced to 0.60 -- softer on light aesthetic clips */}
       <div style={{
-        position: 'absolute',
-        top: '4%',
-        left: '4%',
-        opacity: opacity * 0.75,
+        position:   'absolute',
+        top:        '4%',
+        left:       '4%',
+        opacity:    opacity * 0.60,
         fontFamily: "'JetBrains Mono', monospace",
-        fontSize: '22px',
+        fontSize:   '20px',
         fontWeight: '700',
-        color: '#FFFFFF',
+        color:      '#FFFFFF',
         letterSpacing: '0.04em',
-        textShadow: '0 1px 8px rgba(0,0,0,0.9)',
+        textShadow: '0 1px 10px rgba(0,0,0,0.95), 0 2px 24px rgba(0,0,0,0.7)',
       }}>
         @DailyWealthBuilding
       </div>
 
       {/* TOP RIGHT: DAY XX/90 badge */}
+      {/* v10: softer border color -- rgba(202,255,0,0.35) vs old 0.4 */}
       <div style={{
-        position: 'absolute',
-        top: '3.8%',
-        right: '3.5%',
-        opacity: opacity,
-        display: 'flex',
+        position:   'absolute',
+        top:        '3.8%',
+        right:      '3.5%',
+        opacity:    opacity,
+        display:    'flex',
         alignItems: 'center',
-        gap: '0px',
-        background: 'rgba(0,0,0,0.7)',
-        border: '1px solid rgba(202,255,0,0.4)',
-        padding: '4px 10px',
+        gap:        '0px',
+        background: 'rgba(0,0,0,0.72)',
+        border:     '1px solid rgba(202,255,0,0.35)',
+        padding:    '4px 10px',
       }}>
         <span style={{
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: '22px',
-          fontWeight: '900',
-          color: '#CAFF00',
+          fontFamily:    "'JetBrains Mono', monospace",
+          fontSize:      '20px',
+          fontWeight:    '900',
+          color:         '#CAFF00',
           letterSpacing: '0.06em',
         }}>
           DAY {dayNum}
         </span>
         <span style={{
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: '16px',
-          fontWeight: '400',
-          color: 'rgba(202,255,0,0.55)',
+          fontFamily:    "'JetBrains Mono', monospace",
+          fontSize:      '14px',
+          fontWeight:    '400',
+          color:         'rgba(202,255,0,0.50)',
           letterSpacing: '0.04em',
-          marginLeft: '2px',
+          marginLeft:    '2px',
         }}>
           /90
         </span>
@@ -85,18 +89,19 @@ export const SpecialOverlays = ({ videoId = 'day37', totalFrames = 900 }) => {
 
       {/* BOTTOM: Progress bar */}
       <div style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: '3px',
-        background: 'rgba(255,255,255,0.08)',
+        position:   'absolute',
+        bottom:     0,
+        left:       0,
+        right:      0,
+        height:     '3px',
+        background: 'rgba(255,255,255,0.06)',
       }}>
         <div style={{
-          height: '100%',
-          width: progressW + '%',
+          height:     '100%',
+          width:      progressW + '%',
           background: 'linear-gradient(to right, #CAFF00, #FFD700)',
-          boxShadow: '0 0 8px rgba(202,255,0,0.6)',
+          boxShadow:  '0 0 8px rgba(202,255,0,0.55)',
+          transition: 'width 0.016s linear',
         }} />
       </div>
 
@@ -108,12 +113,12 @@ export const SpecialOverlays = ({ videoId = 'day37', totalFrames = 900 }) => {
 // STATS DASHBOARD -- 3-stat mini grid (for milestone days)
 // =============================================================================
 export const StatsDashboard = ({
-  stats = [],
+  stats       = [],
   accentColor = '#FFD700',
-  startFrame = 90,
-  endFrame = 450,
+  startFrame  = 90,
+  endFrame    = 450,
 }) => {
-  const frame = useCurrentFrame();
+  const frame      = useCurrentFrame();
   const localFrame = frame - startFrame;
   const totalFrames = endFrame - startFrame;
 
@@ -130,23 +135,23 @@ export const StatsDashboard = ({
 
   return (
     <AbsoluteFill style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      top: 'auto',
-      bottom: '22%',
+      display:         'flex',
+      alignItems:      'center',
+      justifyContent:  'center',
+      top:             'auto',
+      bottom:          '22%',
     }}>
       <div style={{
         transform: `translateY(${slideY}px)`,
         opacity,
-        display: 'flex',
-        gap: '12px',
-        padding: '0 24px',
+        display:   'flex',
+        gap:       '12px',
+        padding:   '0 24px',
       }}>
         {stats.map((stat, i) => {
-          const statDelay = i * 8;
+          const statDelay      = i * 8;
           const statLocalFrame = localFrame - statDelay;
-          const progress = interpolate(
+          const progress       = interpolate(
             statLocalFrame,
             [0, Math.max(totalFrames - 40, 20)],
             [0, 1],
@@ -157,24 +162,24 @@ export const StatsDashboard = ({
           return (
             <div key={i} style={{
               background: 'rgba(0,0,0,0.82)',
-              border: `1px solid ${accentColor}44`,
-              padding: '14px 18px',
-              textAlign: 'center',
-              minWidth: '120px',
+              border:     `1px solid ${accentColor}44`,
+              padding:    '14px 18px',
+              textAlign:  'center',
+              minWidth:   '120px',
             }}>
               <div style={{
                 fontFamily: "'Anton', sans-serif",
-                fontSize: '36px',
-                color: accentColor,
+                fontSize:   '36px',
+                color:      accentColor,
                 lineHeight: 1,
               }}>
                 {stat.prefix || ''}{current.toLocaleString()}{stat.suffix || ''}
               </div>
               <div style={{
-                fontFamily: "'Montserrat', sans-serif",
-                fontSize: '16px',
-                color: 'rgba(255,255,255,0.55)',
-                marginTop: '4px',
+                fontFamily:    "'Montserrat', sans-serif",
+                fontSize:      '14px',
+                color:         'rgba(255,255,255,0.55)',
+                marginTop:     '4px',
                 letterSpacing: '0.08em',
                 textTransform: 'uppercase',
               }}>
@@ -189,25 +194,25 @@ export const StatsDashboard = ({
 };
 
 // =============================================================================
-// FLOATING INFO CARD
+// FLOATING INFO CARD -- slides in from side
 // =============================================================================
 export const FloatingInfoCard = ({
-  icon = '',
-  text = '',
+  icon        = '',
+  text        = '',
   accentColor = '#FFD700',
-  side = 'left',
-  yPosition = '35%',
-  startFrame = 0,
-  endFrame = 90,
+  side        = 'left',
+  yPosition   = '35%',
+  startFrame  = 0,
+  endFrame    = 90,
 }) => {
-  const frame = useCurrentFrame();
-  const localFrame = frame - startFrame;
+  const frame       = useCurrentFrame();
+  const localFrame  = frame - startFrame;
   const totalFrames = endFrame - startFrame;
 
   if (localFrame < 0 || localFrame > totalFrames + 10) return null;
 
-  const fromX = side === 'left' ? -260 : 260;
-  const translateX = interpolate(localFrame, [0, 14], [fromX, 0], {
+  const fromX       = side === 'left' ? -260 : 260;
+  const translateX  = interpolate(localFrame, [0, 14], [fromX, 0], {
     extrapolateRight: 'clamp',
     easing: Easing.out(Easing.cubic),
   });
@@ -219,27 +224,27 @@ export const FloatingInfoCard = ({
   return (
     <AbsoluteFill>
       <div style={{
-        position: 'absolute',
-        top: yPosition,
-        [side]: '5%',
-        transform: `translateX(${translateX}px)`,
+        position:    'absolute',
+        top:         yPosition,
+        [side]:      '5%',
+        transform:   `translateX(${translateX}px)`,
         opacity,
-        background: 'rgba(0,0,0,0.84)',
-        border: `1px solid ${accentColor}55`,
-        borderLeft: `3px solid ${accentColor}`,
-        padding: '10px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        maxWidth: '260px',
+        background:  'rgba(0,0,0,0.84)',
+        border:      `1px solid ${accentColor}55`,
+        borderLeft:  `3px solid ${accentColor}`,
+        padding:     '10px 16px',
+        display:     'flex',
+        alignItems:  'center',
+        gap:         '10px',
+        maxWidth:    '260px',
       }}>
         {icon && (
           <span style={{ fontSize: '24px' }}>{icon}</span>
         )}
         <span style={{
           fontFamily: "'Montserrat', sans-serif",
-          fontSize: '20px',
-          color: '#FFFFFF',
+          fontSize:   '18px',
+          color:      '#FFFFFF',
           lineHeight: 1.4,
         }}>
           {text}
@@ -253,14 +258,14 @@ export const FloatingInfoCard = ({
 // LOWER THIRD -- channel name + label sliding in
 // =============================================================================
 export const LowerThird = ({
-  handle = '@DailyWealthBuilding',
-  label = 'AFFILIATE MARKETING JOURNEY',
+  handle      = '@DailyWealthBuilding',
+  label       = 'AFFILIATE MARKETING JOURNEY',
   accentColor = '#CAFF00',
-  startFrame = 0,
-  endFrame = 120,
+  startFrame  = 0,
+  endFrame    = 120,
 }) => {
-  const frame = useCurrentFrame();
-  const localFrame = frame - startFrame;
+  const frame       = useCurrentFrame();
+  const localFrame  = frame - startFrame;
   const totalFrames = endFrame - startFrame;
 
   if (localFrame < 0 || localFrame > totalFrames + 10) return null;
@@ -277,25 +282,22 @@ export const LowerThird = ({
   return (
     <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'flex-start', padding: '0 0 18% 5%' }}>
       <div style={{ transform: `translateX(${slideX}px)`, opacity }}>
-        <div style={{
-          borderLeft: `3px solid ${accentColor}`,
-          paddingLeft: '12px',
-        }}>
+        <div style={{ borderLeft: `3px solid ${accentColor}`, paddingLeft: '12px' }}>
           <div style={{
-            fontFamily: "'Anton', sans-serif",
-            fontSize: '32px',
-            color: '#FFFFFF',
+            fontFamily:    "'Anton', sans-serif",
+            fontSize:      '30px',
+            color:         '#FFFFFF',
             letterSpacing: '0.04em',
-            textShadow: '0 2px 8px rgba(0,0,0,0.9)',
+            textShadow:    '0 2px 8px rgba(0,0,0,0.9)',
           }}>
             {handle}
           </div>
           <div style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: '16px',
-            color: accentColor,
+            fontFamily:    "'JetBrains Mono', monospace",
+            fontSize:      '14px',
+            color:         accentColor,
             letterSpacing: '0.12em',
-            marginTop: '2px',
+            marginTop:     '2px',
           }}>
             {label}
           </div>
@@ -309,27 +311,27 @@ export const LowerThird = ({
 // SCENE NUMBER -- 01/07 documentary style
 // =============================================================================
 export const SceneNumber = ({
-  current = 1,
-  total = 7,
+  current    = 1,
+  total      = 7,
   startFrame = 0,
-  endFrame = 900,
+  endFrame   = 900,
 }) => {
-  const frame = useCurrentFrame();
+  const frame      = useCurrentFrame();
   const localFrame = frame - startFrame;
   if (localFrame < 0 || localFrame > endFrame) return null;
 
-  const opacity = interpolate(localFrame, [0, 15], [0, 0.7], { extrapolateRight: 'clamp' });
-  const pad = (n) => String(n).padStart(2, '0');
+  const opacity = interpolate(localFrame, [0, 15], [0, 0.65], { extrapolateRight: 'clamp' });
+  const pad     = (n) => String(n).padStart(2, '0');
 
   return (
     <AbsoluteFill style={{ alignItems: 'center', justifyContent: 'flex-start', padding: '6% 0 0 5%' }}>
       <div style={{
         opacity,
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: '18px',
-        color: 'rgba(255,255,255,0.55)',
+        fontFamily:    "'JetBrains Mono', monospace",
+        fontSize:      '16px',
+        color:         'rgba(255,255,255,0.55)',
         letterSpacing: '0.12em',
-        textShadow: '0 1px 6px rgba(0,0,0,0.8)',
+        textShadow:    '0 1px 6px rgba(0,0,0,0.8)',
       }}>
         {pad(current)}/{pad(total)}
       </div>
@@ -342,27 +344,27 @@ export const SceneNumber = ({
 // =============================================================================
 export const CornerTimestamp = ({
   startFrame = 0,
-  endFrame = 900,
-  label = '',
+  endFrame   = 900,
+  label      = '',
 }) => {
-  const frame = useCurrentFrame();
+  const frame      = useCurrentFrame();
   const localFrame = frame - startFrame;
   if (localFrame < 0 || localFrame > endFrame) return null;
 
-  const opacity = interpolate(localFrame, [0, 20], [0, 0.6], { extrapolateRight: 'clamp' });
-  const secs = Math.floor(localFrame / 30);
-  const frac = String(localFrame % 30).padStart(2, '0');
+  const opacity = interpolate(localFrame, [0, 20], [0, 0.55], { extrapolateRight: 'clamp' });
+  const secs    = Math.floor(localFrame / 30);
+  const frac    = String(localFrame % 30).padStart(2, '0');
   const timeStr = label || ('00:' + String(secs).padStart(2, '0') + ':' + frac);
 
   return (
     <AbsoluteFill style={{ alignItems: 'flex-end', justifyContent: 'flex-start', padding: '0 0 5% 5%' }}>
       <div style={{
         opacity,
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: '16px',
-        color: 'rgba(255,255,255,0.45)',
+        fontFamily:    "'JetBrains Mono', monospace",
+        fontSize:      '14px',
+        color:         'rgba(255,255,255,0.40)',
         letterSpacing: '0.1em',
-        textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+        textShadow:    '0 1px 4px rgba(0,0,0,0.8)',
       }}>
         {timeStr}
       </div>
