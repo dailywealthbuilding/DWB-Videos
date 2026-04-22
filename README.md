@@ -2,15 +2,15 @@
 
 @DailyWealthBuilding | 90-Day Challenge
 
-## Latest: 2026-04-22 [7AM EAT (Asia/AU)]
+## Latest: 2026-04-22 [12PM EAT (Europe)]
 
 | | |
 |---|---|
 | Week | groq-generated |
 | Days | day50 |
 | Clips | 8 per video |
-| Slot | 7AM EAT (Asia/AU) |
-| Run | [#61](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24762792759) |
+| Slot | 12PM EAT (Europe) |
+| Run | [#62](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24772997674) |
 
 
 
