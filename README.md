@@ -6,11 +6,11 @@
 
 | | |
 |---|---|
-| Week | unknown |
-| Days |  |
+| Week | groq-generated |
+| Days | day50 |
 | Clips | 8 per video |
 | Slot | 7AM EAT (Asia/AU) |
-| Run | [#73](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24944545995) |
+| Run | [#74](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24949756857) |
 
 
 
