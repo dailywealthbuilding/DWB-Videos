@@ -1,45 +1,45 @@
-// src/components/TextOverlay.jsx -- DWB v10.1
+// src/components/TextOverlay.jsx -- DWB v10.2
 // FILE PATH: src/components/TextOverlay.jsx
 //
-// v10.1 FIXES:
-//   1. TEXT SPACING -- All block-text animations now render line-by-line using
-//      explicit <div> per line instead of whiteSpace:pre-wrap (which breaks in
-//      Remotion headless Chrome, causing "Whatis" word concatenation bugs)
-//   2. FONT UPGRADE -- Added Cinzel, Bebas Neue upgrades, elegant editorial fonts
-//   3. WORD-BY-WORD -- gap uses fixed px values (reliable in headless), never em
-//   4. LINE HEIGHT -- Tightened for hook (1.05), relaxed for body (1.6)
+// v10.2 FIXES:
+//   1. WORD SPACING -- ALL animations use WordBlock (flex gap:9px between words)
+//      Headless Chrome collapses CSS word-spacing. Fix: flex gap only, no CSS wordSpacing.
+//   2. FONT UPGRADE -- Cormorant Garamond for all body text (elegant serif)
+//      Anton stays for hooks/CTAs. Cinzel added for luxury titles.
+//   3. POSITION SHIFT -- body animations default to 'lower-third' (not middle)
+//      so text sits over dark lower area of aesthetic clips, not centre of clip.
+//   4. LINE HEIGHT -- increased to 1.55 for body, 1.1 for hooks
 
 import {
   AbsoluteFill,
   useCurrentFrame,
-  useVideoConfig,
   interpolate,
   spring,
   Easing,
 } from 'remotion';
 
 // =============================================================================
-// FONT MAP -- values must match Google Fonts family names EXACTLY
-// v10.1: Added Cinzel, upgraded editorial options
+// FONT MAP
 // =============================================================================
 const FONT_MAP = {
-  Anton:         "'Anton', sans-serif",
-  Bebas:         "'Bebas Neue', sans-serif",
-  Oswald:        "'Oswald', sans-serif",
-  Barlow:        "'Barlow Condensed', sans-serif",
-  Archivo:       "'Archivo Black', sans-serif",
-  Impact:        "'Impact', 'Anton', sans-serif",
-  Playfair:      "'Playfair Display', serif",
-  Cormorant:     "'Cormorant Garamond', serif",
-  Cinzel:        "'Cinzel', serif",
-  Montserrat:    "'Montserrat', sans-serif",
-  Grotesk:       "'Space Grotesk', sans-serif",
-  Mono:          "'JetBrains Mono', monospace",
-  GreatVibes:    "'Great Vibes', cursive",
-  DancingScript: "'Dancing Script', cursive",
-  Italianno:     "'Italianno', cursive",
-  Lora:          "'Lora', serif",
+  Anton:            "'Anton', sans-serif",
+  Bebas:            "'Bebas Neue', sans-serif",
+  Oswald:           "'Oswald', sans-serif",
+  Barlow:           "'Barlow Condensed', sans-serif",
+  Archivo:          "'Archivo Black', sans-serif",
+  Impact:           "'Impact', 'Anton', sans-serif",
+  Playfair:         "'Playfair Display', serif",
+  Cormorant:        "'Cormorant Garamond', serif",
+  Cinzel:           "'Cinzel', serif",
+  Lora:             "'Lora', serif",
   LibreBaskerville: "'Libre Baskerville', serif",
+  Montserrat:       "'Montserrat', sans-serif",
+  Grotesk:          "'Space Grotesk', sans-serif",
+  Raleway:          "'Raleway', sans-serif",
+  Mono:             "'JetBrains Mono', monospace",
+  GreatVibes:       "'Great Vibes', cursive",
+  DancingScript:    "'Dancing Script', cursive",
+  Italianno:        "'Italianno', cursive",
 };
 
 // =============================================================================
@@ -48,15 +48,15 @@ const FONT_MAP = {
 const POSITION_STYLES = {
   'top-center':    { top: '12%',  left: 0, right: 0, bottom: 'auto', alignItems: 'center', justifyContent: 'flex-start' },
   top:             { top: '12%',  left: 0, right: 0, bottom: 'auto', alignItems: 'center', justifyContent: 'flex-start' },
-  middle:          { top: 0,      left: 0, right: 0, bottom: 0,       alignItems: 'center', justifyContent: 'center'     },
-  center:          { top: 0,      left: 0, right: 0, bottom: 0,       alignItems: 'center', justifyContent: 'center'     },
-  'bottom-center': { top: 'auto', left: 0, right: 0, bottom: '16%',   alignItems: 'center', justifyContent: 'flex-end'  },
-  bottom:          { top: 'auto', left: 0, right: 0, bottom: '16%',   alignItems: 'center', justifyContent: 'flex-end'  },
-  'lower-third':   { top: 'auto', left: 0, right: 0, bottom: '22%',   alignItems: 'center', justifyContent: 'flex-end'  },
-  'upper-third':   { top: '22%',  left: 0, right: 0, bottom: 'auto',  alignItems: 'center', justifyContent: 'flex-start'},
-  'top-left':      { top: '12%',  left: '6%', right: 'auto', bottom: 'auto', alignItems: 'flex-start', justifyContent: 'flex-start' },
-  'bottom-left':   { top: 'auto', left: '6%', right: 'auto', bottom: '16%',  alignItems: 'flex-start', justifyContent: 'flex-end'   },
-  'top-right':     { top: '12%',  right: '6%', left: 'auto', bottom: 'auto', alignItems: 'flex-end',   justifyContent: 'flex-start' },
+  middle:          { top: 0,      left: 0, right: 0, bottom: 0,      alignItems: 'center', justifyContent: 'center'     },
+  center:          { top: 0,      left: 0, right: 0, bottom: 0,      alignItems: 'center', justifyContent: 'center'     },
+  'bottom-center': { top: 'auto', left: 0, right: 0, bottom: '15%',  alignItems: 'center', justifyContent: 'flex-end'  },
+  bottom:          { top: 'auto', left: 0, right: 0, bottom: '15%',  alignItems: 'center', justifyContent: 'flex-end'  },
+  'lower-third':   { top: 'auto', left: 0, right: 0, bottom: '18%',  alignItems: 'center', justifyContent: 'flex-end'  },
+  'upper-third':   { top: '20%',  left: 0, right: 0, bottom: 'auto', alignItems: 'center', justifyContent: 'flex-start'},
+  'top-left':      { top: '12%',  left: '5%', right: 'auto', bottom: 'auto', alignItems: 'flex-start', justifyContent: 'flex-start' },
+  'bottom-left':   { top: 'auto', left: '5%', right: 'auto', bottom: '15%',  alignItems: 'flex-start', justifyContent: 'flex-end'   },
+  'top-right':     { top: '12%',  right: '5%', left: 'auto', bottom: 'auto', alignItems: 'flex-end',   justifyContent: 'flex-start' },
 };
 
 // =============================================================================
@@ -64,9 +64,9 @@ const POSITION_STYLES = {
 // =============================================================================
 const SHADOW = {
   none:   'none',
-  soft:   '0 2px 12px rgba(0,0,0,0.85), 0 4px 28px rgba(0,0,0,0.6)',
-  medium: '0 2px 14px rgba(0,0,0,1),    0 5px 32px rgba(0,0,0,0.8)',
-  heavy:  '0 2px 8px rgba(0,0,0,1),     0 5px 24px rgba(0,0,0,1), 0 10px 48px rgba(0,0,0,0.9)',
+  soft:   '0 2px 12px rgba(0,0,0,0.9), 0 4px 28px rgba(0,0,0,0.7)',
+  medium: '0 2px 14px rgba(0,0,0,1),   0 5px 32px rgba(0,0,0,0.85)',
+  heavy:  '0 2px 8px rgba(0,0,0,1),    0 5px 24px rgba(0,0,0,1), 0 10px 48px rgba(0,0,0,0.95)',
 };
 
 // =============================================================================
@@ -93,29 +93,23 @@ function strokeStyle(stroke) {
   return { WebkitTextStroke: stroke.size + 'px ' + stroke.color };
 }
 
-// v10.1 FIX: BASE_TEXT no longer uses whiteSpace:pre-wrap
-// Each animation now renders line-by-line using explicit <div> elements.
-// This fixes the "Whatis" word concatenation bug in Remotion headless Chrome.
-const BASE_TEXT = {
-  letterSpacing: '0.01em',
-  lineHeight: 1.55,
-  textAlign: 'center',
-};
+function isSerifFont(fontKey) {
+  return ['Cormorant','Playfair','Cinzel','Lora','LibreBaskerville'].includes(fontKey);
+}
 
-// Glass card background
 const glassCard = {
-  background: 'rgba(0,0,0,0.72)',
-  backdropFilter: 'blur(12px)',
-  WebkitBackdropFilter: 'blur(12px)',
-  borderLeft: '3px solid rgba(202,255,0,0.6)',
-  padding: '18px 28px',
-  maxWidth: '90%',
+  background: 'rgba(0,0,0,0.74)',
+  backdropFilter: 'blur(14px)',
+  WebkitBackdropFilter: 'blur(14px)',
+  borderLeft: '4px solid rgba(202,255,0,0.75)',
+  padding: '20px 28px',
+  maxWidth: '94%',
 };
 
 const darkCard = {
-  background: 'rgba(5,5,7,0.88)',
+  background: 'rgba(4,4,6,0.88)',
   padding: '16px 24px',
-  maxWidth: '90%',
+  maxWidth: '92%',
 };
 
 function getCardStyle(textBackground) {
@@ -125,64 +119,56 @@ function getCardStyle(textBackground) {
 }
 
 // =============================================================================
-// v10.1 CORE FIX: LineBlock renderer
-// Renders text split by \n as separate <div> elements.
-// This is the fix for word concatenation -- never use whiteSpace:pre-wrap
-// for block text in Remotion headless Chrome.
+// WORD BLOCK -- THE CORE WORD SPACING FIX
+// Every body animation uses this. Words rendered as flex children with gap:9px.
+// This completely bypasses the headless Chrome CSS word-spacing bug.
+// Empty \n lines become spacers. Non-empty lines split by space into word spans.
 // =============================================================================
-function LineBlock({ text, font, fontSize, fontWeight, color, shadow, stroke, italic, letterSpacing, lineHeight, textAlign }) {
-  const lines = (text || '').split('\n');
+function WordBlock({
+  text,
+  font,
+  fontSize,
+  fontWeight = '500',
+  color,
+  shadow = SHADOW.soft,
+  stroke,
+  italic = false,
+  uppercase = false,
+  letterSpacing = '0.01em',
+  lineHeight = 1.55,
+  lineGap = 8,
+  wordGap = 9,
+  textAlign = 'center',
+}) {
+  const lines   = (text || '').split('\n');
+  const justify = textAlign === 'left' ? 'flex-start' : 'center';
+  const align   = textAlign === 'left' ? 'flex-start' : 'center';
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: textAlign === 'left' ? 'flex-start' : 'center', gap: '4px' }}>
-      {lines.map((line, i) => (
-        <div key={i} style={{
-          fontFamily: font,
-          fontSize: fontSize + 'px',
-          fontWeight: fontWeight || '600',
-          color: color,
-          textShadow: shadow || SHADOW.soft,
-          lineHeight: lineHeight || 1.55,
-          textAlign: textAlign || 'center',
-          fontStyle: italic ? 'italic' : 'normal',
-          letterSpacing: letterSpacing || '0.01em',
-          ...strokeStyle(stroke),
-        }}>
-          {line || '\u00A0'}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// =============================================================================
-// WORD-BY-WORD RENDERER -- gap uses fixed px (reliable in headless)
-// =============================================================================
-function WordByWord({ text, font, fontSize, fontWeight, color, shadow, stroke, getWordStyle, lineGap = 4 }) {
-  const lines = (text || '').split('\n');
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: lineGap + 'px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: align, gap: lineGap + 'px' }}>
       {lines.map((line, li) => {
         const words = line.split(' ').filter(w => w.length > 0);
+        if (words.length === 0) {
+          return <div key={li} style={{ height: Math.round(fontSize * 0.3) + 'px' }} />;
+        }
         return (
-          <div key={li} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', alignItems: 'baseline' }}>
-            {words.map((word, wi) => {
-              const style = getWordStyle ? getWordStyle(li, wi, lines.length, words.length) : {};
-              return (
-                <span key={li + '-' + wi} style={{
-                  fontFamily: font,
-                  fontSize: fontSize + 'px',
-                  fontWeight: fontWeight || '600',
-                  color: color,
-                  textShadow: shadow || SHADOW.soft,
-                  lineHeight: 1.4,
-                  display: 'inline-block',
-                  ...strokeStyle(stroke),
-                  ...style,
-                }}>
-                  {word}
-                </span>
-              );
-            })}
+          <div key={li} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: justify, gap: wordGap + 'px', alignItems: 'baseline' }}>
+            {words.map((word, wi) => (
+              <span key={wi} style={{
+                fontFamily: font,
+                fontSize: fontSize + 'px',
+                fontWeight,
+                color,
+                textShadow: shadow,
+                fontStyle: italic ? 'italic' : 'normal',
+                textTransform: uppercase ? 'uppercase' : 'none',
+                letterSpacing,
+                lineHeight,
+                display: 'inline-block',
+                ...strokeStyle(stroke),
+              }}>
+                {word}
+              </span>
+            ))}
           </div>
         );
       })}
@@ -192,35 +178,38 @@ function WordByWord({ text, font, fontSize, fontWeight, color, shadow, stroke, g
 
 // =============================================================================
 // ANIMATION: elegant-rise
-// v10.1: Uses LineBlock instead of pre-wrap. Fixes word concat.
+// Serif body text. Rises and fades in. Sits at lower-third by default.
 // =============================================================================
 function ElegantRise({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
   const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif    = isSerifFont(overlay.font || 'Cormorant');
   const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
+  const fontSize = scaleFontSize(overlay.fontSize || 56, overlay.text);
   const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
-  const card     = getCardStyle(overlay.textBackground) || glassCard;
+  const card     = getCardStyle(overlay.textBackground);
 
-  const ty = interpolate(frame, [0, 22], [30, 0], { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+  const ty = interpolate(frame, [0, 22], [28, 0], { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
   const op = Math.min(
     interpolate(frame, [0, 18], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(frame, [total - 16, total], [1, 0], { extrapolateLeft: 'clamp' })
   );
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 32px' }}>
-      <div style={{ transform: `translateY(${ty}px)`, opacity: op, display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-        <div style={{ ...card, width: '100%' }}>
-          <LineBlock
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 36px' }}>
+      <div style={{ transform: `translateY(${ty}px)`, opacity: op, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+        <div style={{ ...card }}>
+          <WordBlock
             text={overlay.text}
             font={font}
             fontSize={fontSize}
-            fontWeight="500"
+            fontWeight={serif ? '400' : '600'}
             color={color}
-            shadow={SHADOW.none}
-            stroke={overlay.stroke}
-            italic={overlay.italic !== false}
+            shadow={card ? SHADOW.none : SHADOW.soft}
+            stroke={card ? null : overlay.stroke}
+            italic={serif}
+            lineGap={9}
+            wordGap={10}
             lineHeight={1.6}
           />
         </div>
@@ -230,7 +219,7 @@ function ElegantRise({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: zoom-punch (hook -- keeps existing behavior)
+// ANIMATION: zoom-punch (hook)
 // =============================================================================
 function ZoomPunch({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
@@ -246,9 +235,9 @@ function ZoomPunch({ overlay, frame }) {
   );
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 56px' }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px' }}>
       <div style={{ transform: `scale(${sc})`, opacity: op }}>
-        <LineBlock
+        <WordBlock
           text={overlay.text}
           font={font}
           fontSize={fontSize}
@@ -256,8 +245,11 @@ function ZoomPunch({ overlay, frame }) {
           color={color}
           shadow={SHADOW.heavy}
           stroke={overlay.stroke}
+          uppercase
           letterSpacing={overlay.letterSpacing || '0.02em'}
-          lineHeight={1.05}
+          lineHeight={1.1}
+          lineGap={4}
+          wordGap={12}
         />
       </div>
     </AbsoluteFill>
@@ -265,7 +257,7 @@ function ZoomPunch({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: stamp-impact
+// ANIMATION: stamp-impact (hook)
 // =============================================================================
 function StampImpact({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
@@ -281,9 +273,9 @@ function StampImpact({ overlay, frame }) {
   );
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 52px' }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px' }}>
       <div style={{ transform: `scale(${sc})`, opacity: op }}>
-        <LineBlock
+        <WordBlock
           text={overlay.text}
           font={font}
           fontSize={fontSize}
@@ -291,8 +283,11 @@ function StampImpact({ overlay, frame }) {
           color={color}
           shadow={SHADOW.heavy}
           stroke={overlay.stroke}
-          letterSpacing='0.02em'
-          lineHeight={1.05}
+          uppercase
+          letterSpacing="0.02em"
+          lineHeight={1.1}
+          lineGap={4}
+          wordGap={12}
         />
       </div>
     </AbsoluteFill>
@@ -300,40 +295,49 @@ function StampImpact({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: stagger -- v10.1 FIX -- line-by-line, no pre-wrap
+// ANIMATION: stagger -- line-by-line serif reveal
 // =============================================================================
 function Stagger({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
   const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif    = isSerifFont(overlay.font || 'Cormorant');
   const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
+  const fontSize = scaleFontSize(overlay.fontSize || 56, overlay.text);
   const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
   const lines    = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
-  const card     = getCardStyle(overlay.textBackground) || glassCard;
+  const card     = getCardStyle(overlay.textBackground);
 
   const globalOp = interpolate(frame, [total - 16, total], [1, 0], { extrapolateLeft: 'clamp' });
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 32px', opacity: globalOp }}>
-      <div style={{ ...card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', width: '100%' }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 36px', opacity: globalOp }}>
+      <div style={{ ...card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
         {lines.map((line, i) => {
           const delay  = i * 10;
           const lineOp = interpolate(frame - delay, [0, 14], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
           const lineY  = interpolate(frame - delay, [0, 16], [22, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+          const words  = line.split(' ').filter(w => w.length > 0);
+          const fSize  = i === 0 ? Math.round(fontSize * 1.05) : fontSize;
+          const fColor = i === 0 ? (overlay.accentColor || color) : color;
 
           return (
-            <div key={i} style={{ opacity: lineOp, transform: `translateY(${lineY}px)`, textAlign: 'center' }}>
-              <div style={{
-                fontFamily: font,
-                fontSize: (i === 0 ? Math.round(fontSize * 1.05) : fontSize) + 'px',
-                fontWeight: i === 0 ? '700' : '400',
-                color: i === 0 ? (overlay.accentColor || color) : color,
-                textShadow: SHADOW.none,
-                lineHeight: 1.55,
-                fontStyle: overlay.italic !== false ? 'italic' : 'normal',
-                ...strokeStyle(i === 0 ? overlay.stroke : null),
-              }}>
-                {line}
+            <div key={i} style={{ opacity: lineOp, transform: `translateY(${lineY}px)` }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '9px', alignItems: 'baseline' }}>
+                {words.map((word, wi) => (
+                  <span key={wi} style={{
+                    fontFamily: font,
+                    fontSize: fSize + 'px',
+                    fontWeight: i === 0 ? '700' : (serif ? '400' : '500'),
+                    color: fColor,
+                    textShadow: card ? SHADOW.none : SHADOW.soft,
+                    fontStyle: serif ? 'italic' : 'normal',
+                    lineHeight: 1.55,
+                    display: 'inline-block',
+                    ...strokeStyle(i === 0 ? overlay.stroke : null),
+                  }}>
+                    {word}
+                  </span>
+                ))}
               </div>
             </div>
           );
@@ -345,21 +349,20 @@ function Stagger({ overlay, frame }) {
 
 // =============================================================================
 // ANIMATION: fade-word -- words appear one by one
-// v10.1: Line-aware, proper word spacing via flex gap
 // =============================================================================
 function FadeWord({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
   const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif    = isSerifFont(overlay.font || 'Cormorant');
   const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
+  const fontSize = scaleFontSize(overlay.fontSize || 56, overlay.text);
   const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
-  const card     = getCardStyle(overlay.textBackground) || glassCard;
+  const card     = getCardStyle(overlay.textBackground);
 
   const lines    = (overlay.text || '').split('\n');
   const allWords = [];
   lines.forEach((line, li) => {
-    const words = line.split(' ').filter(w => w.length > 0);
-    words.forEach((word, wi) => {
+    line.split(' ').filter(w => w.length > 0).forEach((word, wi) => {
       allWords.push({ word, lineIndex: li, wordIndex: wi });
     });
   });
@@ -369,29 +372,30 @@ function FadeWord({ overlay, frame }) {
   const lineGroups = lines.map((_, li) => allWords.filter(w => w.lineIndex === li));
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 32px', opacity: globalOp }}>
-      <div style={{ ...card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', width: '100%' }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 36px', opacity: globalOp }}>
+      <div style={{ ...card, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '9px' }}>
         {lineGroups.map((lineWords, li) => {
           const lineStartIdx = allWords.findIndex(w => w.lineIndex === li);
+          if (lineWords.length === 0) return <div key={li} style={{ height: Math.round(fontSize * 0.3) + 'px' }} />;
           return (
-            <div key={li} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '7px', alignItems: 'baseline' }}>
+            <div key={li} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', alignItems: 'baseline' }}>
               {lineWords.map((item, wi) => {
-                const globalIdx = lineStartIdx + wi;
-                const wf  = frame - globalIdx * fpw;
-                const wOp = interpolate(wf, [0, 12], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-                const wY  = interpolate(wf, [0, 14], [14, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+                const gIdx = lineStartIdx + wi;
+                const wf   = frame - gIdx * fpw;
+                const wOp  = interpolate(wf, [0, 12], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+                const wY   = interpolate(wf, [0, 14], [14, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
                 return (
                   <span key={wi} style={{
                     fontFamily: font,
                     fontSize: fontSize + 'px',
-                    fontWeight: '500',
+                    fontWeight: serif ? '400' : '600',
                     color,
-                    textShadow: SHADOW.none,
+                    textShadow: card ? SHADOW.none : SHADOW.soft,
+                    fontStyle: serif ? 'italic' : 'normal',
                     opacity: wOp,
                     transform: `translateY(${wY}px)`,
                     display: 'inline-block',
-                    lineHeight: 1.5,
-                    fontStyle: overlay.italic !== false ? 'italic' : 'normal',
+                    lineHeight: 1.55,
                     ...strokeStyle(overlay.stroke),
                   }}>
                     {item.word}
@@ -407,48 +411,36 @@ function FadeWord({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: word-bounce -- words pop in with spring
+// ANIMATION: word-bounce
 // =============================================================================
 function WordBounce({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
   const font     = FONT_MAP[overlay.font] || FONT_MAP.Anton;
   const color    = ensureColor(overlay.color);
   const fontSize = scaleFontSize(overlay.fontSize || 92, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['bottom-center'];
+  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
 
   const lines    = (overlay.text || '').split('\n');
-  let wordCounter = 0;
-  const lineGroups = lines.map(line => {
-    const words = line.split(' ').filter(w => w.length > 0);
-    const result = words.map(word => ({ word, idx: wordCounter++ }));
-    return result;
-  });
-
-  const totalWords = wordCounter;
-  const fpw = Math.max(4, Math.floor((total * 0.5) / Math.max(totalWords, 1)));
+  let wc = 0;
+  const groups = lines.map(line => line.split(' ').filter(w => w.length > 0).map(word => ({ word, idx: wc++ })));
+  const total2 = wc;
+  const fpw    = Math.max(4, Math.floor((total * 0.5) / Math.max(total2, 1)));
   const globalOp = interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' });
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 56px', opacity: globalOp }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px', opacity: globalOp }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-        {lineGroups.map((words, li) => (
+        {groups.map((words, li) => (
           <div key={li} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', alignItems: 'baseline' }}>
             {words.map(({ word, idx }) => {
-              const sc = spring({ frame: frame - idx * fpw, fps: 30, from: 0.3, to: 1, config: { damping: 10, stiffness: 280 } });
+              const sc  = spring({ frame: frame - idx * fpw, fps: 30, from: 0.3, to: 1, config: { damping: 10, stiffness: 280 } });
               const wOp = interpolate(frame - idx * fpw, [0, 4], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
               return (
                 <span key={idx} style={{
-                  fontFamily: font,
-                  fontSize: fontSize + 'px',
-                  fontWeight: '900',
-                  color,
-                  textShadow: SHADOW.medium,
-                  transform: `scale(${sc})`,
-                  opacity: wOp,
-                  display: 'inline-block',
-                  lineHeight: 1.1,
-                  textTransform: 'uppercase',
-                  ...strokeStyle(overlay.stroke),
+                  fontFamily: font, fontSize: fontSize + 'px', fontWeight: '900',
+                  color, textShadow: SHADOW.medium, transform: `scale(${sc})`,
+                  opacity: wOp, display: 'inline-block', lineHeight: 1.2,
+                  textTransform: 'uppercase', ...strokeStyle(overlay.stroke),
                 }}>
                   {word}
                 </span>
@@ -462,16 +454,17 @@ function WordBounce({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: editorial-body -- v10.1 FIX: line-by-line, Cormorant italic
+// ANIMATION: editorial-body
 // =============================================================================
 function EditorialBody({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
   const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif    = isSerifFont(overlay.font || 'Cormorant');
   const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
+  const fontSize = scaleFontSize(overlay.fontSize || 56, overlay.text);
   const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
   const lines    = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
-  const card     = getCardStyle(overlay.textBackground) || glassCard;
+  const card     = getCardStyle(overlay.textBackground);
 
   const globalOp = Math.min(
     interpolate(frame, [0, 20], [0, 1], { extrapolateRight: 'clamp' }),
@@ -479,24 +472,29 @@ function EditorialBody({ overlay, frame }) {
   );
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 32px', opacity: globalOp }}>
-      <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 36px', opacity: globalOp }}>
+      <div style={{ ...card, display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {lines.map((line, i) => {
-          const lDelay = i * 9;
-          const lOp = interpolate(frame - lDelay, [0, 15], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          const lY  = interpolate(frame - lDelay, [0, 17], [18, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+          const lOp = interpolate(frame - i * 9, [0, 15], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          const lY  = interpolate(frame - i * 9, [0, 17], [18, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+          const words = line.split(' ').filter(w => w.length > 0);
+          const fSize = i === 0 ? Math.round(fontSize * 1.08) : fontSize;
+          const fCol  = i === 0 ? (overlay.accentColor || color) : color;
+
           return (
-            <div key={i} style={{ opacity: lOp, transform: `translateY(${lY}px)`, textAlign: 'center' }}>
-              <div style={{
-                fontFamily: font,
-                fontSize: (i === 0 ? Math.round(fontSize * 1.08) : fontSize) + 'px',
-                fontWeight: i === 0 ? '700' : '400',
-                color: i === 0 ? (overlay.accentColor || color) : color,
-                textShadow: SHADOW.none,
-                lineHeight: 1.6,
-                fontStyle: overlay.italic !== false ? 'italic' : 'normal',
-              }}>
-                {line}
+            <div key={i} style={{ opacity: lOp, transform: `translateY(${lY}px)` }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: card ? 'center' : 'flex-start', gap: '9px', alignItems: 'baseline' }}>
+                {words.map((word, wi) => (
+                  <span key={wi} style={{
+                    fontFamily: font, fontSize: fSize + 'px',
+                    fontWeight: i === 0 ? '700' : (serif ? '400' : '400'),
+                    color: fCol, textShadow: card ? SHADOW.none : SHADOW.soft,
+                    fontStyle: serif ? 'italic' : 'normal',
+                    lineHeight: 1.6, display: 'inline-block',
+                  }}>
+                    {word}
+                  </span>
+                ))}
               </div>
             </div>
           );
@@ -507,7 +505,7 @@ function EditorialBody({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: kinetic -- controlled CTA word reveal
+// ANIMATION: kinetic (CTA)
 // =============================================================================
 function Kinetic({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
@@ -516,53 +514,32 @@ function Kinetic({ overlay, frame }) {
   const fontSize = scaleFontSize(overlay.fontSize || 92, overlay.text);
   const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['bottom-center'];
 
-  const lines    = (overlay.text || '').split('\n');
-  let wordCounter = 0;
-  const lineGroups = lines.map(line => {
-    const words = line.split(' ').filter(w => w.length > 0);
-    const result = words.map(word => ({ word, idx: wordCounter++ }));
-    return result;
-  });
-
-  const totalWords = wordCounter;
-  const fpw      = Math.max(4, Math.floor((total * 0.55) / Math.max(totalWords, 1)));
+  const lines = (overlay.text || '').split('\n');
+  let wc = 0;
+  const groups = lines.map(line => line.split(' ').filter(w => w.length > 0).map(word => ({ word, idx: wc++ })));
+  const fpw = Math.max(4, Math.floor((total * 0.55) / Math.max(wc, 1)));
   const globalOp = Math.min(
     interpolate(frame, [0, 8], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(frame, [total - 12, total], [1, 0], { extrapolateLeft: 'clamp' })
   );
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 52px', opacity: globalOp }}>
-      <div style={{
-        background: 'rgba(0,0,0,0.78)',
-        padding: '16px 24px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '6px',
-        borderTop: '2px solid rgba(202,255,0,0.5)',
-      }}>
-        {lineGroups.map((words, li) => (
-          <div key={li} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '8px', alignItems: 'baseline' }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 44px', opacity: globalOp }}>
+      <div style={{ background: 'rgba(0,0,0,0.8)', padding: '14px 22px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+        {groups.map((words, li) => (
+          <div key={li} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '9px', alignItems: 'baseline' }}>
             {words.map(({ word, idx }) => {
-              const wf    = frame - idx * fpw;
-              const wOp   = interpolate(wf, [0, 8], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-              const sc    = spring({ frame: wf, fps: 30, from: 0.6, to: 1, config: { damping: 12, stiffness: 250 } });
-              const fSize = idx === 0 ? Math.round(fontSize * 1.1) : fontSize;
+              const wf  = frame - idx * fpw;
+              const wOp = interpolate(wf, [0, 8], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+              const sc  = spring({ frame: wf, fps: 30, from: 0.6, to: 1, config: { damping: 12, stiffness: 250 } });
+              const fSize     = idx === 0 ? Math.round(fontSize * 1.1) : fontSize;
               const wordColor = word.toUpperCase() === word && word.length > 2 ? (overlay.accentColor || '#CAFF00') : color;
               return (
                 <span key={idx} style={{
-                  fontFamily: font,
-                  fontSize: fSize + 'px',
-                  fontWeight: '900',
-                  color: wordColor,
-                  textShadow: SHADOW.heavy,
-                  opacity: wOp,
-                  transform: `scale(${sc})`,
-                  display: 'inline-block',
-                  lineHeight: 1.1,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.02em',
+                  fontFamily: font, fontSize: fSize + 'px', fontWeight: '900',
+                  color: wordColor, textShadow: SHADOW.heavy,
+                  opacity: wOp, transform: `scale(${sc})`, display: 'inline-block',
+                  lineHeight: 1.2, textTransform: 'uppercase', letterSpacing: '0.02em',
                   ...strokeStyle(overlay.stroke),
                 }}>
                   {word}
@@ -577,13 +554,14 @@ function Kinetic({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: aesthetic-card -- v10.1 FIX: LineBlock for proper spacing
+// ANIMATION: aesthetic-card
 // =============================================================================
 function AestheticCard({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
   const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif    = isSerifFont(overlay.font || 'Cormorant');
   const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
+  const fontSize = scaleFontSize(overlay.fontSize || 56, overlay.text);
   const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
 
   const slideY = interpolate(frame, [0, 18], [40, 0], { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
@@ -595,25 +573,16 @@ function AestheticCard({ overlay, frame }) {
   return (
     <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 28px' }}>
       <div style={{
-        transform: `translateY(${slideY}px)`,
-        opacity: op,
-        background: 'rgba(0,0,0,0.80)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        borderLeft: '4px solid #CAFF00',
-        padding: '20px 28px',
-        width: '100%',
+        transform: `translateY(${slideY}px)`, opacity: op,
+        background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)', borderLeft: '4px solid #CAFF00',
+        padding: '20px 28px', width: '100%',
       }}>
-        <LineBlock
-          text={overlay.text}
-          font={font}
-          fontSize={fontSize}
-          fontWeight="500"
-          color={color}
-          shadow={SHADOW.none}
-          italic={overlay.italic !== false}
-          lineHeight={1.6}
-          textAlign="left"
+        <WordBlock
+          text={overlay.text} font={font} fontSize={fontSize}
+          fontWeight={serif ? '400' : '600'} color={color}
+          shadow={SHADOW.none} italic={serif}
+          textAlign="left" lineGap={9} wordGap={10} lineHeight={1.6}
         />
       </div>
     </AbsoluteFill>
@@ -621,7 +590,7 @@ function AestheticCard({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: glass-lower -- full-width frosted glass bar at bottom
+// ANIMATION: glass-lower
 // =============================================================================
 function GlassLower({ overlay, frame }) {
   const total    = overlay.endFrame - overlay.startFrame;
@@ -638,24 +607,16 @@ function GlassLower({ overlay, frame }) {
   return (
     <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'stretch' }}>
       <div style={{
-        transform: `translateY(${slideY}px)`,
-        opacity: op,
-        background: 'linear-gradient(to top, rgba(0,0,0,0.92), rgba(0,0,0,0.72))',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-        padding: '28px 44px 44px',
-        borderTop: '2px solid rgba(202,255,0,0.4)',
+        transform: `translateY(${slideY}px)`, opacity: op,
+        background: 'linear-gradient(to top, rgba(0,0,0,0.95), rgba(0,0,0,0.74))',
+        backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+        padding: '28px 44px 44px', borderTop: '2px solid rgba(202,255,0,0.5)',
       }}>
-        <LineBlock
-          text={overlay.text}
-          font={font}
-          fontSize={fontSize}
-          fontWeight="900"
-          color={color}
-          shadow={SHADOW.medium}
-          stroke={overlay.stroke}
-          letterSpacing='0.02em'
-          lineHeight={1.1}
+        <WordBlock
+          text={overlay.text} font={font} fontSize={fontSize}
+          fontWeight="900" color={color} shadow={SHADOW.medium}
+          stroke={overlay.stroke} uppercase letterSpacing="0.02em"
+          lineHeight={1.15} lineGap={5} wordGap={12}
         />
       </div>
     </AbsoluteFill>
@@ -663,40 +624,41 @@ function GlassLower({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: line-reveal -- cinematic left-to-right reveal
+// ANIMATION: line-reveal
 // =============================================================================
 function LineReveal({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Anton;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 100, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
-  const lines    = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
-
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Anton;
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 100, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
+  const lines  = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
   const globalOp = interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' });
 
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 52px', opacity: globalOp }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px', opacity: globalOp }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
         {lines.map((line, i) => {
           const delay  = i * 8;
           const slideX = interpolate(frame - delay, [0, 18], [-360, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
           const lineOp = interpolate(frame - delay, [0, 12], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          const words  = line.split(' ').filter(w => w.length > 0);
           return (
             <div key={i} style={{ transform: `translateX(${slideX}px)`, opacity: lineOp }}>
-              <div style={{
-                fontFamily: font,
-                fontSize: (i === 0 ? Math.round(fontSize * 1.05) : fontSize) + 'px',
-                fontWeight: '900',
-                color: i === 0 ? (overlay.accentColor || '#CAFF00') : color,
-                textShadow: SHADOW.heavy,
-                letterSpacing: '0.02em',
-                lineHeight: 1.05,
-                textTransform: 'uppercase',
-                textAlign: 'center',
-                ...strokeStyle(overlay.stroke),
-              }}>
-                {line}
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', alignItems: 'baseline' }}>
+                {words.map((word, wi) => (
+                  <span key={wi} style={{
+                    fontFamily: font,
+                    fontSize: (i === 0 ? Math.round(fSize * 1.05) : fSize) + 'px',
+                    fontWeight: '900', display: 'inline-block',
+                    color: i === 0 ? (overlay.accentColor || '#CAFF00') : color,
+                    textShadow: SHADOW.heavy, letterSpacing: '0.02em',
+                    lineHeight: 1.1, textTransform: 'uppercase',
+                    ...strokeStyle(overlay.stroke),
+                  }}>
+                    {word}
+                  </span>
+                ))}
               </div>
             </div>
           );
@@ -707,288 +669,202 @@ function LineReveal({ overlay, frame }) {
 }
 
 // =============================================================================
-// ANIMATION: blur-in
+// Remaining animations (blur-in, slide-up, fade, caps, flip-up, split-reveal,
+// letter-drop, multi-line, script-pair, word-bounce alias)
+// All updated to use WordBlock for word spacing fix
 // =============================================================================
-function BlurIn({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
-  const card     = getCardStyle(overlay.textBackground) || glassCard;
 
-  const blur = interpolate(frame, [0, 22], [14, 0], { extrapolateRight: 'clamp' });
-  const op   = Math.min(
+function BlurIn({ overlay, frame }) {
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif  = isSerifFont(overlay.font || 'Cormorant');
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 56, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
+  const card   = getCardStyle(overlay.textBackground);
+  const blur   = interpolate(frame, [0, 22], [14, 0], { extrapolateRight: 'clamp' });
+  const op     = Math.min(
     interpolate(frame, [0, 20], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(frame, [total - 16, total], [1, 0], { extrapolateLeft: 'clamp' })
   );
-
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 32px' }}>
-      <div style={{ ...card, opacity: op, filter: `blur(${blur}px)`, width: '100%' }}>
-        <LineBlock
-          text={overlay.text}
-          font={font}
-          fontSize={fontSize}
-          fontWeight="500"
-          color={color}
-          shadow={SHADOW.none}
-          italic={overlay.italic !== false}
-          lineHeight={1.6}
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 36px' }}>
+      <div style={{ ...card, opacity: op, filter: `blur(${blur}px)` }}>
+        <WordBlock text={overlay.text} font={font} fontSize={fSize}
+          fontWeight={serif ? '400' : '600'} color={color}
+          shadow={card ? SHADOW.none : SHADOW.medium}
+          stroke={card ? null : overlay.stroke} italic={serif}
+          lineGap={9} wordGap={10} lineHeight={1.6}
         />
       </div>
     </AbsoluteFill>
   );
 }
 
-// =============================================================================
-// ANIMATION: slide-up
-// =============================================================================
 function SlideUp({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
-  const card     = getCardStyle(overlay.textBackground) || glassCard;
-
-  const ty = interpolate(frame, [0, 20], [50, 0], { extrapolateRight: 'clamp', easing: Easing.out(Easing.quad) });
-  const op = Math.min(
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif  = isSerifFont(overlay.font || 'Cormorant');
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 56, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
+  const card   = getCardStyle(overlay.textBackground);
+  const ty     = interpolate(frame, [0, 20], [50, 0], { extrapolateRight: 'clamp', easing: Easing.out(Easing.quad) });
+  const op     = Math.min(
     interpolate(frame, [0, 16], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(frame, [total - 16, total], [1, 0], { extrapolateLeft: 'clamp' })
   );
-
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 32px' }}>
-      <div style={{ transform: `translateY(${ty}px)`, opacity: op, ...card, width: '100%' }}>
-        <LineBlock
-          text={overlay.text}
-          font={font}
-          fontSize={fontSize}
-          fontWeight="400"
-          color={color}
-          shadow={SHADOW.none}
-          italic={overlay.italic !== false}
-          lineHeight={1.6}
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 36px' }}>
+      <div style={{ transform: `translateY(${ty}px)`, opacity: op, ...card }}>
+        <WordBlock text={overlay.text} font={font} fontSize={fSize}
+          fontWeight={serif ? '400' : '500'} color={color}
+          shadow={card ? SHADOW.none : SHADOW.soft}
+          stroke={card ? null : overlay.stroke} italic={serif}
+          lineGap={9} wordGap={10} lineHeight={1.6}
         />
       </div>
     </AbsoluteFill>
   );
 }
 
-// =============================================================================
-// ANIMATION: multi-line
-// =============================================================================
-function MultiLine({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
-  const lines    = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
-
-  const globalOp = Math.min(
-    interpolate(frame, [0, 16], [0, 1], { extrapolateRight: 'clamp' }),
-    interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' })
-  );
-
-  return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 32px', opacity: globalOp }}>
-      <div style={{ ...glassCard, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', width: '100%' }}>
-        {lines.map((line, i) => {
-          const lDelay = i * 10;
-          const lOp = interpolate(frame - lDelay, [0, 14], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          const lX  = interpolate(frame - lDelay, [0, 16], [-24, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
-          return (
-            <div key={i} style={{ opacity: lOp, transform: `translateX(${lX}px)`, textAlign: 'center' }}>
-              <div style={{
-                fontFamily: font,
-                fontSize: (i === 0 ? Math.round(fontSize * 1.1) : fontSize) + 'px',
-                fontWeight: i === 0 ? '700' : '400',
-                color: i === 0 ? (overlay.accentColor || '#CAFF00') : color,
-                textShadow: SHADOW.none,
-                lineHeight: 1.55,
-                fontStyle: overlay.italic !== false ? 'italic' : 'normal',
-              }}>
-                {line}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </AbsoluteFill>
-  );
-}
-
-// =============================================================================
-// ANIMATION: fade
-// =============================================================================
 function Fade({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 58, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
-  const card     = getCardStyle(overlay.textBackground) || glassCard;
-
-  const op = Math.min(
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif  = isSerifFont(overlay.font || 'Cormorant');
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 56, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
+  const card   = getCardStyle(overlay.textBackground);
+  const op     = Math.min(
     interpolate(frame, [0, 20], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(frame, [total - 18, total], [1, 0], { extrapolateLeft: 'clamp' })
   );
-
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 32px' }}>
-      <div style={{ opacity: op, ...card, width: '100%' }}>
-        <LineBlock
-          text={overlay.text}
-          font={font}
-          fontSize={fontSize}
-          fontWeight="400"
-          color={color}
-          shadow={SHADOW.none}
-          italic={overlay.italic !== false}
-          lineHeight={1.6}
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 36px' }}>
+      <div style={{ opacity: op, ...card }}>
+        <WordBlock text={overlay.text} font={font} fontSize={fSize}
+          fontWeight={serif ? '400' : '500'} color={color}
+          shadow={card ? SHADOW.none : SHADOW.soft}
+          stroke={card ? null : overlay.stroke} italic={serif}
+          lineGap={9} wordGap={10} lineHeight={1.6}
         />
       </div>
     </AbsoluteFill>
   );
 }
 
-// =============================================================================
-// ANIMATION: flip-up
-// =============================================================================
-function FlipUp({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Anton;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 100, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
-  const lines    = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
-
-  const globalOp = interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' });
-
-  return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 52px', opacity: globalOp }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
-        {lines.map((line, i) => {
-          const delay  = i * 10;
-          const rotX   = interpolate(frame - delay, [0, 16], [-90, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          const lOp    = interpolate(frame - delay, [0, 10], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-          return (
-            <div key={i} style={{ opacity: lOp, transform: `perspective(800px) rotateX(${rotX}deg)`, transformOrigin: 'center bottom' }}>
-              <div style={{
-                fontFamily: font,
-                fontSize: fontSize + 'px',
-                fontWeight: '900',
-                color: i === 0 ? (overlay.accentColor || color) : color,
-                textShadow: SHADOW.heavy,
-                textTransform: 'uppercase',
-                lineHeight: 1.05,
-                letterSpacing: '0.02em',
-                textAlign: 'center',
-                ...strokeStyle(overlay.stroke),
-              }}>
-                {line}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </AbsoluteFill>
-  );
-}
-
-// =============================================================================
-// ANIMATION: caps
-// =============================================================================
 function Caps({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Anton;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 100, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
-
-  const op = Math.min(
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Anton;
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 92, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
+  const op     = Math.min(
     interpolate(frame, [0, 14], [0, 1], { extrapolateRight: 'clamp' }),
     interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' })
   );
   const ls = interpolate(frame, [0, 30], [0.3, 0.02], { extrapolateRight: 'clamp' });
-
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 52px' }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px' }}>
       <div style={{ opacity: op }}>
-        <LineBlock
-          text={overlay.text}
-          font={font}
-          fontSize={fontSize}
-          fontWeight="900"
-          color={color}
-          shadow={SHADOW.heavy}
-          stroke={overlay.stroke}
-          letterSpacing={ls + 'em'}
-          lineHeight={1.05}
+        <WordBlock text={overlay.text} font={font} fontSize={fSize}
+          fontWeight="900" color={color} shadow={SHADOW.heavy}
+          stroke={overlay.stroke} uppercase letterSpacing={ls + 'em'}
+          lineHeight={1.1} lineGap={4} wordGap={12}
         />
       </div>
     </AbsoluteFill>
   );
 }
 
-// =============================================================================
-// ANIMATION: split-reveal
-// =============================================================================
-function SplitReveal({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Anton;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 100, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
-  const lines    = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
-
-  const splitAmt = interpolate(frame, [0, 22], [0, 1], { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
-  const op = Math.min(
-    interpolate(frame, [0, 14], [0, 1], { extrapolateRight: 'clamp' }),
-    interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' })
-  );
-
+function FlipUp({ overlay, frame }) {
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Anton;
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 100, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
+  const lines  = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
+  const globalOp = interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' });
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 52px', opacity: op }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: `${splitAmt * 16}px` }}>
-        {lines.map((line, i) => (
-          <div key={i} style={{
-            fontFamily: font,
-            fontSize: fontSize + 'px',
-            fontWeight: '900',
-            color: i === 0 ? (overlay.accentColor || '#CAFF00') : color,
-            textShadow: SHADOW.heavy,
-            textTransform: 'uppercase',
-            lineHeight: 1.05,
-            letterSpacing: '0.02em',
-            textAlign: 'center',
-            ...strokeStyle(overlay.stroke),
-          }}>
-            {line}
-          </div>
-        ))}
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px', opacity: globalOp }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+        {lines.map((line, i) => {
+          const rotX = interpolate(frame - i * 10, [0, 16], [-90, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          const lOp  = interpolate(frame - i * 10, [0, 10], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          const words = line.split(' ').filter(w => w.length > 0);
+          return (
+            <div key={i} style={{ opacity: lOp, transform: `perspective(800px) rotateX(${rotX}deg)`, transformOrigin: 'center bottom' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', alignItems: 'baseline' }}>
+                {words.map((word, wi) => (
+                  <span key={wi} style={{
+                    fontFamily: font, fontSize: fSize + 'px', fontWeight: '900',
+                    color: i === 0 ? (overlay.accentColor || color) : color,
+                    textShadow: SHADOW.heavy, textTransform: 'uppercase',
+                    lineHeight: 1.15, letterSpacing: '0.02em', display: 'inline-block',
+                    ...strokeStyle(overlay.stroke),
+                  }}>
+                    {word}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </AbsoluteFill>
   );
 }
 
-// =============================================================================
-// ANIMATION: letter-drop
-// =============================================================================
-function LetterDrop({ overlay, frame }) {
-  const total    = overlay.endFrame - overlay.startFrame;
-  const font     = FONT_MAP[overlay.font] || FONT_MAP.Anton;
-  const color    = ensureColor(overlay.color);
-  const fontSize = scaleFontSize(overlay.fontSize || 100, overlay.text);
-  const pos      = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
-  const chars    = (overlay.text || '').split('');
-  const fpc      = Math.max(2, Math.floor((total * 0.5) / Math.max(chars.length, 1)));
-  const globalOp = interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' });
-
+function SplitReveal({ overlay, frame }) {
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Anton;
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 100, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
+  const lines  = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
+  const split  = interpolate(frame, [0, 22], [0, 1], { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+  const op     = Math.min(
+    interpolate(frame, [0, 14], [0, 1], { extrapolateRight: 'clamp' }),
+    interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' })
+  );
   return (
-    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 52px', opacity: globalOp }}>
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px', opacity: op }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: `${split * 16}px` }}>
+        {lines.map((line, i) => {
+          const words = line.split(' ').filter(w => w.length > 0);
+          return (
+            <div key={i} style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', alignItems: 'baseline' }}>
+              {words.map((word, wi) => (
+                <span key={wi} style={{
+                  fontFamily: font, fontSize: fSize + 'px', fontWeight: '900',
+                  color: i === 0 ? (overlay.accentColor || '#CAFF00') : color,
+                  textShadow: SHADOW.heavy, textTransform: 'uppercase',
+                  lineHeight: 1.1, letterSpacing: '0.02em', display: 'inline-block',
+                  ...strokeStyle(overlay.stroke),
+                }}>
+                  {word}
+                </span>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+}
+
+function LetterDrop({ overlay, frame }) {
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Anton;
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 100, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
+  const chars  = (overlay.text || '').split('');
+  const fpc    = Math.max(2, Math.floor((total * 0.5) / Math.max(chars.length, 1)));
+  const globalOp = interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' });
+  return (
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px', opacity: globalOp }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '2px' }}>
         {chars.map((ch, i) => {
           const cf  = frame - i * fpc;
@@ -996,14 +872,9 @@ function LetterDrop({ overlay, frame }) {
           const cY  = interpolate(cf, [0, 12], [-40, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
           return (
             <span key={i} style={{
-              fontFamily: font,
-              fontSize: fontSize + 'px',
-              fontWeight: '900',
-              color,
-              textShadow: SHADOW.medium,
-              opacity: cOp,
-              transform: `translateY(${cY}px)`,
-              display: 'inline-block',
+              fontFamily: font, fontSize: fSize + 'px', fontWeight: '900',
+              color, textShadow: SHADOW.medium, opacity: cOp,
+              transform: `translateY(${cY}px)`, display: 'inline-block',
               whiteSpace: ch === ' ' ? 'pre' : 'normal',
               width: ch === ' ' ? '0.3em' : 'auto',
             }}>
@@ -1016,45 +887,82 @@ function LetterDrop({ overlay, frame }) {
   );
 }
 
-// =============================================================================
-// ANIMATION: bounce (alias)
-// =============================================================================
-const Bounce = WordBounce;
+function MultiLine({ overlay, frame }) {
+  const total  = overlay.endFrame - overlay.startFrame;
+  const font   = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
+  const serif  = isSerifFont(overlay.font || 'Cormorant');
+  const color  = ensureColor(overlay.color);
+  const fSize  = scaleFontSize(overlay.fontSize || 56, overlay.text);
+  const pos    = POSITION_STYLES[overlay.position] || POSITION_STYLES['lower-third'];
+  const lines  = (overlay.text || '').split('\n').filter(l => l.trim().length > 0);
+  const globalOp = Math.min(
+    interpolate(frame, [0, 16], [0, 1], { extrapolateRight: 'clamp' }),
+    interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' })
+  );
+  return (
+    <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 36px', opacity: globalOp }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+        {lines.map((line, i) => {
+          const lOp  = interpolate(frame - i * 10, [0, 14], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+          const lX   = interpolate(frame - i * 10, [0, 16], [-24, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
+          const words = line.split(' ').filter(w => w.length > 0);
+          return (
+            <div key={i} style={{ opacity: lOp, transform: `translateX(${lX}px)` }}>
+              <div style={{
+                display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
+                gap: '9px', alignItems: 'baseline',
+                background: i === 0 ? 'rgba(0,0,0,0.55)' : 'transparent',
+                padding: i === 0 ? '4px 12px' : '0',
+              }}>
+                {words.map((word, wi) => (
+                  <span key={wi} style={{
+                    fontFamily: font,
+                    fontSize: (i === 0 ? Math.round(fSize * 1.1) : fSize) + 'px',
+                    fontWeight: i === 0 ? '800' : (serif ? '400' : '400'),
+                    color: i === 0 ? (overlay.accentColor || '#CAFF00') : color,
+                    fontStyle: serif && i > 0 ? 'italic' : 'normal',
+                    textShadow: SHADOW.soft, lineHeight: 1.55, display: 'inline-block',
+                  }}>
+                    {word}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </AbsoluteFill>
+  );
+}
 
-// =============================================================================
-// ANIMATION: script-pair
-// =============================================================================
 function ScriptPair({ overlay, frame }) {
-  const total       = overlay.endFrame - overlay.startFrame;
-  const scriptFont  = FONT_MAP[overlay.scriptFont] || FONT_MAP.GreatVibes;
-  const bodyFont    = FONT_MAP[overlay.font]        || FONT_MAP.Cormorant;
+  const total      = overlay.endFrame - overlay.startFrame;
+  const scriptFont = FONT_MAP[overlay.scriptFont] || FONT_MAP.GreatVibes;
+  const bodyFont   = FONT_MAP[overlay.font] || FONT_MAP.Cormorant;
   const scriptColor = ensureColor(overlay.scriptColor || overlay.color);
   const bodyColor   = ensureColor(overlay.bodyColor || '#FFFFFF');
   const scriptSize  = overlay.scriptFontSize || 104;
   const bodySize    = scaleFontSize(overlay.fontSize || 36, overlay.text);
   const pos         = POSITION_STYLES[overlay.position] || POSITION_STYLES.middle;
-
   const sx  = interpolate(frame, [0, 24], [-28, 0], { extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) });
   const sOp = interpolate(frame, [0, 18], [0, 1], { extrapolateRight: 'clamp' });
-  const bOp = Math.min(
-    interpolate(frame, [12, 28], [0, 1], { extrapolateRight: 'clamp' }),
-    interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' })
-  );
+  const bOp = Math.min(interpolate(frame, [12, 28], [0, 1], { extrapolateRight: 'clamp' }), interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' }));
   const eOp = interpolate(frame, [total - 14, total], [1, 0], { extrapolateLeft: 'clamp' });
-
   return (
     <AbsoluteFill style={{ display: 'flex', flexDirection: 'column', ...pos, padding: '0 48px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
         <div style={{ transform: `translateX(${sx}px)`, opacity: sOp * eOp }}>
-          <div style={{ fontFamily: scriptFont, fontSize: scriptSize + 'px', fontWeight: '400', color: scriptColor, textShadow: SHADOW.heavy, lineHeight: 1.15, textAlign: 'center' }}>
-            {overlay.scriptText || overlay.text}
-          </div>
+          <WordBlock text={overlay.scriptText || overlay.text} font={scriptFont}
+            fontSize={scriptSize} fontWeight="400" color={scriptColor}
+            shadow={SHADOW.heavy} italic lineHeight={1.15} lineGap={6} wordGap={8}
+          />
         </div>
         {overlay.scriptText && overlay.text && (
           <div style={{ opacity: bOp }}>
-            <div style={{ fontFamily: bodyFont, fontSize: bodySize + 'px', fontWeight: '400', color: bodyColor, textShadow: SHADOW.soft, letterSpacing: '0.22em', textTransform: 'uppercase', textAlign: 'center' }}>
-              {overlay.text}
-            </div>
+            <WordBlock text={overlay.text} font={bodyFont} fontSize={bodySize}
+              fontWeight="400" color={bodyColor} shadow={SHADOW.soft}
+              uppercase letterSpacing="0.22em" lineGap={6} wordGap={10}
+            />
           </div>
         )}
       </div>
@@ -1062,8 +970,10 @@ function ScriptPair({ overlay, frame }) {
   );
 }
 
+const Bounce = WordBounce;
+
 // =============================================================================
-// MAIN DISPATCH
+// DISPATCH
 // =============================================================================
 const ANIMATION_MAP = {
   'zoom-punch':     ZoomPunch,
@@ -1091,7 +1001,7 @@ const ANIMATION_MAP = {
 
 export const TextOverlay = ({ overlay }) => {
   if (!overlay || !overlay.text) return null;
-  const frame = useCurrentFrame();
+  const frame     = useCurrentFrame();
   const Animation = ANIMATION_MAP[overlay.animation];
   if (!Animation) return <ElegantRise overlay={overlay} frame={frame} />;
   return <Animation overlay={overlay} frame={frame} />;
