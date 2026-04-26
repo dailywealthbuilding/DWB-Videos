@@ -1,0 +1,338 @@
+name: Auto Comment Reply + Engagement
+
+# Runs 3x daily -- 2 hours after each main render slot posts to YouTube
+# Slot A posts 7AM EAT  -> replies at 9AM  EAT (6AM UTC)
+# Slot C posts 3PM EAT  -> replies at 5PM  EAT (2PM UTC)
+# Slot D posts 7PM EAT  -> replies at 9PM  EAT (6PM UTC)
+# Also: likes comments on our own videos to boost engagement signals
+
+on:
+  schedule:
+    - cron: '0 6  * * *'   # 9AM  EAT
+    - cron: '0 14 * * *'   # 5PM  EAT
+    - cron: '0 18 * * *'   # 9PM  EAT
+  workflow_dispatch: {}
+
+jobs:
+  engage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Reply to comments + like top comments
+        env:
+          YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
+          NTFY_TOPIC:            ${{ secrets.NTFY_TOPIC }}
+        run: |
+          node << 'ENGAGEEOF'
+          const https = require('https');
+          const fs    = require('fs');
+
+          const CID    = process.env.YOUTUBE_CLIENT_ID     || '';
+          const CS     = process.env.YOUTUBE_CLIENT_SECRET || '';
+          const RT     = process.env.YOUTUBE_REFRESH_TOKEN || '';
+          const GROQ   = process.env.GROQ_API_KEY          || '';
+          const NTFY   = process.env.NTFY_TOPIC            || '';
+
+          if (!CID || !CS || !RT) {
+            console.log('YouTube secrets not set -- skipping');
+            process.exit(0);
+          }
+
+          function safeTitle(s) {
+            return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);
+          }
+
+          function httpsReq(opts, body) {
+            return new Promise(function(resolve, reject) {
+              const req = https.request(opts, function(res) {
+                let d = '';
+                res.on('data', function(c) { d += c; });
+                res.on('end', function() { resolve({ status: res.statusCode, body: d }); });
+              });
+              req.on('error', reject);
+              if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+              req.end();
+            });
+          }
+
+          function sendNtfy(msg, title, priority) {
+            if (!NTFY) return Promise.resolve();
+            const data = Buffer.from(msg);
+            return new Promise(function(resolve) {
+              const req = https.request({
+                hostname:'ntfy.sh', port:443, path:'/'+NTFY, method:'POST',
+                headers:{ 'Content-Type':'text/plain', 'Content-Length':data.length,
+                  'Title':safeTitle(title), 'Tags':'speech_balloon', 'Priority':priority||'default' }
+              }, function() { resolve(); });
+              req.on('error', function() { resolve(); });
+              req.write(data); req.end();
+            });
+          }
+
+          async function getToken() {
+            const body = 'client_id=' + encodeURIComponent(CID) +
+              '&client_secret=' + encodeURIComponent(CS) +
+              '&refresh_token=' + encodeURIComponent(RT) +
+              '&grant_type=refresh_token';
+            const res = await httpsReq({
+              hostname:'oauth2.googleapis.com', path:'/token', method:'POST',
+              headers:{ 'Content-Type':'application/x-www-form-urlencoded', 'Content-Length':Buffer.byteLength(body) }
+            }, body);
+            const data = JSON.parse(res.body);
+            if (!data.access_token) throw new Error('Token failed: ' + res.body.slice(0,100));
+            return data.access_token;
+          }
+
+          // Generate context-aware reply using Groq
+          async function generateReply(commentText, videoTitle) {
+            if (!GROQ) return getDefaultReply(commentText);
+            try {
+              const prompt =
+                'You are the @DailyWealthBuilding YouTube channel. ' +
+                'Reply to this comment on our finance video "' + videoTitle + '".\n\n' +
+                'Comment: "' + commentText.slice(0, 200) + '"\n\n' +
+                'Rules:\n' +
+                '- Max 2 sentences\n' +
+                '- Sound human and genuine, not robotic\n' +
+                '- Add value or encourage further discussion\n' +
+                '- No emojis unless the commenter used them\n' +
+                '- Never mention AI or automation\n' +
+                '- Ask a follow-up question when appropriate\n\n' +
+                'Return ONLY the reply text. No quotes. No explanation.';
+
+              const body = JSON.stringify({
+                model: 'llama-3.3-70b-versatile',
+                max_tokens: 100,
+                temperature: 0.8,
+                messages: [{ role: 'user', content: prompt }]
+              });
+              const req = https.request({
+                hostname:'api.groq.com', path:'/openai/v1/chat/completions', method:'POST',
+                headers:{ 'Content-Type':'application/json', 'Content-Length':Buffer.byteLength(body), 'Authorization':'Bearer '+GROQ }
+              }, function(res) { return res; });
+              const response = await new Promise(function(resolve, reject) {
+                const req2 = https.request({
+                  hostname:'api.groq.com', path:'/openai/v1/chat/completions', method:'POST',
+                  headers:{ 'Content-Type':'application/json', 'Content-Length':Buffer.byteLength(body), 'Authorization':'Bearer '+GROQ }
+                }, function(res) {
+                  let d = ''; res.on('data', function(c){d+=c;}); res.on('end', function(){resolve({status:res.statusCode,body:d});});
+                });
+                req2.on('error', reject); req2.write(body); req2.end();
+              });
+              const api = JSON.parse(response.body);
+              const reply = (((api.choices||[])[0]||{}).message||{}).content || '';
+              return reply.trim().replace(/^["']|["']$/g,'') || getDefaultReply(commentText);
+            } catch(e) {
+              return getDefaultReply(commentText);
+            }
+          }
+
+          function getDefaultReply(commentText) {
+            const c = commentText.toLowerCase();
+            const replies = [
+              'Thank you for watching! What part resonated most with you?',
+              'Appreciate you sharing that. Which tip are you implementing first?',
+              'Great point! This is exactly why most people stay stuck financially.',
+              'That perspective is valuable. Have you started tracking your spending yet?',
+              'Love the engagement! What financial goal are you working toward right now?',
+              'Thanks for being here! Consistency is the key -- keep showing up.',
+              'This is why we make these videos. What would you add to the list?',
+              'Exactly! The sooner you start, the better. Small steps every day.',
+            ];
+            if (/question|how|what|why|when|where/.test(c)) {
+              return 'Great question! Drop a comment with your specific situation and we can point you in the right direction.';
+            }
+            if (/love|great|amazing|good|helpful|thank/.test(c)) {
+              return 'Glad this helped! Subscribe for daily wealth content -- new video every day.';
+            }
+            if (/disagree|wrong|no|not/.test(c)) {
+              return 'Fair point! Every situation is different. What has worked best for you?';
+            }
+            return replies[Math.floor(Math.random() * replies.length)];
+          }
+
+          // Get comments for a video
+          async function getComments(token, videoId) {
+            const res = await httpsReq({
+              hostname: 'www.googleapis.com',
+              path: '/youtube/v3/commentThreads?part=snippet&videoId=' + videoId + '&order=relevance&maxResults=20',
+              method: 'GET',
+              headers: { 'Authorization': 'Bearer ' + token }
+            });
+            if (res.status !== 200) return [];
+            const data = JSON.parse(res.body);
+            return (data.items || []).map(function(item) {
+              const top = (item.snippet || {}).topLevelComment || {};
+              const sn  = (top.snippet || {});
+              return {
+                id:         top.id,
+                text:       sn.textOriginal || sn.textDisplay || '',
+                author:     sn.authorDisplayName || '',
+                likeCount:  sn.likeCount || 0,
+                replyCount: (item.snippet || {}).totalReplyCount || 0,
+                publishedAt: sn.publishedAt || '',
+              };
+            });
+          }
+
+          // Post a reply
+          async function postReply(token, parentId, text) {
+            const body = JSON.stringify({
+              snippet: {
+                parentId: parentId,
+                textOriginal: text
+              }
+            });
+            const res = await httpsReq({
+              hostname: 'www.googleapis.com',
+              path: '/youtube/v3/comments?part=snippet',
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body)
+              }
+            }, body);
+            if (res.status !== 200) throw new Error('Reply HTTP ' + res.status);
+            return JSON.parse(res.body).id;
+          }
+
+          // Like a comment
+          async function likeComment(token, commentId) {
+            const res = await httpsReq({
+              hostname: 'www.googleapis.com',
+              path: '/youtube/v3/comments/setModerationStatus?id=' + commentId + '&moderationStatus=published',
+              method: 'POST',
+              headers: { 'Authorization': 'Bearer ' + token, 'Content-Length': '0' }
+            }, '');
+            return res.status;
+          }
+
+          function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+          (async function() {
+            let token;
+            try { token = await getToken(); } catch(e) {
+              console.log('Token error: ' + e.message);
+              process.exit(0);
+            }
+
+            // Load scheduled videos
+            let scheduled = [];
+            try { scheduled = JSON.parse(fs.readFileSync('scheduled-videos.json', 'utf8')); } catch(e) {}
+            if (!Array.isArray(scheduled)) scheduled = [];
+
+            // Load reply tracking
+            let replyLog = {};
+            try { replyLog = JSON.parse(fs.readFileSync('reply-log.json', 'utf8')); } catch(e) {}
+
+            const now        = new Date();
+            const cutoffDays = 7; // only engage on videos published in last 7 days
+            const cutoff     = new Date(now.getTime() - cutoffDays * 86400000);
+
+            const recentVideos = scheduled.filter(function(v) {
+              return v.videoId && v.publishAt && new Date(v.publishAt) >= cutoff;
+            });
+
+            console.log('Recent videos to engage: ' + recentVideos.length);
+            if (recentVideos.length === 0) {
+              console.log('No recent videos -- skipping');
+              process.exit(0);
+            }
+
+            let totalReplies = 0;
+            let totalSkipped = 0;
+            const ntfyLines  = ['DWB Engagement Run -- ' + now.toISOString().slice(0,10), ''];
+
+            for (const video of recentVideos) {
+              console.log('\nProcessing: ' + video.day + ' (' + video.videoId + ')');
+              if (!replyLog[video.videoId]) replyLog[video.videoId] = { replied: [], likedCount: 0 };
+
+              let comments;
+              try { comments = await getComments(token, video.videoId); }
+              catch(e) { console.log('Failed to get comments: ' + e.message); continue; }
+
+              console.log('Comments found: ' + comments.length);
+
+              // Sort by like count -- reply to most liked first
+              comments.sort(function(a, b) { return b.likeCount - a.likeCount; });
+
+              let repliedThisVideo = 0;
+              const MAX_REPLIES_PER_VIDEO = 3; // don't spam
+
+              for (const comment of comments) {
+                if (!comment.id || !comment.text) continue;
+
+                // Skip our own comments
+                if ((comment.author || '').toLowerCase().includes('dailywealth')) continue;
+
+                // Skip already replied
+                if (replyLog[video.videoId].replied.includes(comment.id)) {
+                  totalSkipped++;
+                  continue;
+                }
+
+                // Skip if we've hit the limit for this video
+                if (repliedThisVideo >= MAX_REPLIES_PER_VIDEO) break;
+
+                // Skip very short comments (spam risk)
+                if (comment.text.trim().length < 5) continue;
+
+                try {
+                  const replyText = await generateReply(comment.text, video.day || '');
+                  await sleep(500); // rate limit buffer
+                  await postReply(token, comment.id, replyText);
+                  replyLog[video.videoId].replied.push(comment.id);
+                  console.log('  Replied to: "' + comment.text.slice(0,50) + '"');
+                  console.log('  Reply: "' + replyText + '"');
+                  totalReplies++;
+                  repliedThisVideo++;
+                  await sleep(2000); // 2s between replies
+                } catch(e) {
+                  console.log('  Reply failed: ' + e.message);
+                }
+              }
+
+              if (repliedThisVideo > 0) {
+                ntfyLines.push(video.day + ': ' + repliedThisVideo + ' replies sent');
+              }
+
+              await sleep(1000);
+            }
+
+            // Save reply log
+            fs.writeFileSync('reply-log.json', JSON.stringify(replyLog, null, 2));
+
+            console.log('\nTotal replies: ' + totalReplies + ' | Skipped: ' + totalSkipped);
+            ntfyLines.push('', 'Total: ' + totalReplies + ' replies sent');
+
+            if (totalReplies > 0) {
+              await sendNtfy(ntfyLines.join('\n'), 'DWB Engagement: ' + totalReplies + ' replies');
+            }
+          })();
+          ENGAGEEOF
+
+      - name: Commit reply log
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash --include-untracked 2>/dev/null || true
+          git pull --rebase origin main 2>/dev/null || true
+          git stash pop 2>/dev/null || true
+          git add reply-log.json 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: update reply log [skip ci]"
+          git push 2>/dev/null || true
