@@ -2,23 +2,23 @@
 
 @DailyWealthBuilding | 90-Day Challenge
 
-## Latest: 2026-04-26 [12PM EAT (Europe)]
+## Latest: 2026-04-26 [7PM EAT]
 
 | | |
 |---|---|
-| Week | groq-generated |
-| Days | day50 |
+| Week | override |
+| Days | day38 |
 | Clips | 8 per video |
-| Slot | 12PM EAT (Europe) |
-| Run | [#75](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24953765654) |
+| Slots | 5x daily: 7AM/11AM/3PM/7PM/11PM EAT |
+| Run | [#76](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24958973138) |
 
 
 
-## Pipeline v10.1
+## Pipeline v10.2
 
-- 8 aesthetic clips per day | Cormorant/Playfair italic body fonts
-- Text at lower-third | Glass cards for contrast
-- 3x daily: 7AM / 12PM / 7PM EAT | Slot-aware YouTube scheduling
+- 5 slots/day | 8 aesthetic clips | Cormorant/Playfair body fonts
+- Auto personal clip library | Glass cards lower-third
+- DETECTEOF crash-proof | Auto counter advance
 
 ---
 _Auto-updated 2026-04-26_
