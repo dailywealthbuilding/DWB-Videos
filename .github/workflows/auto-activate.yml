@@ -1,0 +1,225 @@
+name: Auto-Activate Approved Content Drafts
+
+# Runs every Sunday midnight EAT (9PM Saturday UTC)
+# Scans src/ for week*-content-DRAFT.js files that were approved
+# "Approved" = file was renamed by hand OR contains no DRAFT in name
+# Also auto-imports new week files into index.jsx
+
+# ZERO MANUAL WORK FLOW:
+# 1. Groq generates DRAFT file every Saturday
+# 2. You review it on your phone
+# 3. You rename DRAFT -> active in GitHub mobile (or just confirm it's good)
+# 4. This workflow detects it Sunday and activates it in index.jsx automatically
+# 5. Pipeline picks it up Monday and starts rendering
+
+on:
+  schedule:
+    - cron: '0 21 * * 6'   # 9PM Saturday UTC = midnight Sunday EAT
+  workflow_dispatch: {}
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Auto-activate approved drafts and update index.jsx
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          node << 'ACTIVATEEOF'
+          const fs   = require('fs');
+          const path = require('path');
+          const https = require('https');
+
+          const NTFY   = process.env.NTFY_TOPIC || '';
+          const srcDir = path.join(process.cwd(), 'src');
+
+          function safeTitle(s) {
+            return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);
+          }
+
+          function sendNtfy(msg, title, priority) {
+            if (!NTFY) return Promise.resolve();
+            const data = Buffer.from(msg);
+            return new Promise(function(resolve) {
+              const req = https.request({
+                hostname:'ntfy.sh', port:443, path:'/'+NTFY, method:'POST',
+                headers:{ 'Content-Type':'text/plain', 'Content-Length':data.length,
+                  'Title':safeTitle(title), 'Tags':'white_check_mark', 'Priority':priority||'default' }
+              }, function() { resolve(); });
+              req.on('error', function() { resolve(); });
+              req.write(data); req.end();
+            });
+          }
+
+          if (!fs.existsSync(srcDir)) {
+            console.log('[ACTIVATE] No src/ directory');
+            process.exit(0);
+          }
+
+          const allFiles = fs.readdirSync(srcDir);
+
+          // Find all active content files (no DRAFT in name)
+          const activeFiles = allFiles.filter(f => f.match(/^week\d+-content\.js$/) && !f.includes('DRAFT'));
+          const draftFiles  = allFiles.filter(f => f.match(/^week\d+-content-DRAFT\.js$/));
+
+          console.log('[ACTIVATE] Active files: ' + activeFiles.join(', '));
+          console.log('[ACTIVATE] Draft files: '  + draftFiles.join(', '));
+
+          // Find active week numbers
+          const activeWeeks = new Set(activeFiles.map(f => parseInt(f.match(/week(\d+)/)[1])));
+          const maxActiveWeek = activeWeeks.size > 0 ? Math.max(...activeWeeks) : 0;
+
+          // Auto-rename drafts for weeks that are NOT yet active
+          // (User approval = existence of the DRAFT file without deletion)
+          const activated = [];
+          for (const draft of draftFiles) {
+            const weekNum = parseInt(draft.match(/week(\d+)/)[1]);
+            const activeName = 'week' + weekNum + '-content.js';
+
+            if (activeWeeks.has(weekNum)) {
+              console.log('[ACTIVATE] Week ' + weekNum + ' already active -- skipping draft');
+              continue;
+            }
+
+            // Auto-activate: rename DRAFT -> active
+            const draftPath  = path.join(srcDir, draft);
+            const activePath = path.join(srcDir, activeName);
+
+            try {
+              let content = fs.readFileSync(draftPath, 'utf8');
+              // Remove DRAFT comments from header
+              content = content.replace(/\/\/ REVIEW BEFORE USE[^\n]*\n/g, '');
+              content = content.replace(/\/\/ AUTO-GENERATED[^\n]*\n/g, '// Auto-activated: ' + new Date().toISOString().slice(0,10) + '\n');
+              fs.writeFileSync(activePath, content);
+              fs.unlinkSync(draftPath); // remove draft
+              activated.push({ week: weekNum, file: activeName });
+              console.log('[ACTIVATE] Activated: ' + activeName);
+            } catch(e) {
+              console.log('[ACTIVATE] Failed to activate ' + draft + ': ' + e.message);
+            }
+          }
+
+          if (activated.length === 0) {
+            console.log('[ACTIVATE] No new drafts to activate');
+          }
+
+          // ─── NOW AUTO-UPDATE index.jsx ───────────────────────────────────────
+          // Reads index.jsx, finds all week content files in src/, ensures
+          // all of them are imported. Adds missing imports automatically.
+
+          const indexPath = path.join(srcDir, 'index.jsx');
+          if (!fs.existsSync(indexPath)) {
+            console.log('[ACTIVATE] No index.jsx found -- skipping import update');
+            process.exit(0);
+          }
+
+          let indexContent = fs.readFileSync(indexPath, 'utf8');
+
+          // Re-scan for all active files after activation
+          const finalActiveFiles = fs.readdirSync(srcDir)
+            .filter(f => f.match(/^week\d+-content\.js$/) && !f.includes('DRAFT'))
+            .sort((a, b) => {
+              const an = parseInt(a.match(/week(\d+)/)[1]);
+              const bn = parseInt(b.match(/week(\d+)/)[1]);
+              return an - bn;
+            });
+
+          let importChanges = 0;
+          let mergeChanges  = 0;
+
+          for (const file of finalActiveFiles) {
+            const weekNum  = parseInt(file.match(/week(\d+)/)[1]);
+            const varName  = 'week' + weekNum + 'Videos';
+            const isOld    = weekNum <= 6; // default export
+            const importLine = isOld
+              ? 'import ' + varName + ' from \'./' + file + '\';'
+              : 'import { ' + varName + ' } from \'./' + file + '\';';
+            const mergeLine  = isOld
+              ? 'var week' + weekNum + ' = Array.isArray(' + varName + ') ? ' + varName + ' : [];'
+              : 'var week' + weekNum + ' = Array.isArray(' + varName + ') ? ' + varName + ' : [];';
+
+            // Add import if missing
+            if (!indexContent.includes(file)) {
+              // Insert after last import line
+              const lastImport = indexContent.lastIndexOf('import ');
+              const insertAt   = indexContent.indexOf('\n', lastImport) + 1;
+              indexContent = indexContent.slice(0, insertAt) + importLine + '\n' + indexContent.slice(insertAt);
+              console.log('[ACTIVATE] Added import for: ' + file);
+              importChanges++;
+            }
+
+            // Ensure merge variable exists
+            if (!indexContent.includes('week' + weekNum + ' = Array.isArray')) {
+              const allWeeksLine = indexContent.indexOf('var allEntries');
+              if (allWeeksLine !== -1) {
+                indexContent = indexContent.slice(0, allWeeksLine) + mergeLine + '\n' + indexContent.slice(allWeeksLine);
+                console.log('[ACTIVATE] Added merge variable for week' + weekNum);
+                mergeChanges++;
+              }
+            }
+          }
+
+          // Ensure allEntries concat includes all weeks
+          const concatMatch = indexContent.match(/var allEntries = ([^;]+);/);
+          if (concatMatch) {
+            const weekVars = finalActiveFiles.map(f => 'week' + parseInt(f.match(/week(\d+)/)[1]));
+            const newConcat = 'var allEntries = ' + weekVars.map(v => v + '.concat ? ' + v : '[]').join(' ').replace(/\s+/g, ' ');
+            // Build proper concat chain
+            const concatChain = weekVars.reduce(function(acc, v, i) {
+              return i === 0 ? v : acc + '.concat(' + v + ')';
+            }, '[]');
+            const newConcatLine = 'var allEntries = ' + concatChain + ';';
+            if (!indexContent.includes(concatChain)) {
+              indexContent = indexContent.replace(/var allEntries = [^;]+;/, newConcatLine);
+              console.log('[ACTIVATE] Updated allEntries concat: ' + concatChain);
+              mergeChanges++;
+            }
+          }
+
+          if (importChanges > 0 || mergeChanges > 0) {
+            fs.writeFileSync(indexPath, indexContent);
+            console.log('[ACTIVATE] index.jsx updated: ' + importChanges + ' imports, ' + mergeChanges + ' merge changes');
+          } else {
+            console.log('[ACTIVATE] index.jsx already up to date');
+          }
+
+          // ─── SEND NTFY SUMMARY ───────────────────────────────────────────────
+          const lines = ['DWB Content Activation -- ' + new Date().toISOString().slice(0,10), ''];
+          if (activated.length > 0) {
+            lines.push('Activated:');
+            activated.forEach(function(a) { lines.push('  Week ' + a.week + ': ' + a.file); });
+          } else {
+            lines.push('No new content activated.');
+          }
+          lines.push('');
+          lines.push('Active weeks: ' + finalActiveFiles.map(f => 'W' + f.match(/week(\d+)/)[1]).join(', '));
+
+          if (activated.length > 0) {
+            await sendNtfy(lines.join('\n'), 'DWB Week ' + activated.map(a=>a.week).join('+') + ' Activated');
+          }
+
+          console.log('[ACTIVATE] Done');
+          ACTIVATEEOF
+
+      - name: Commit activated content and updated index.jsx
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git stash --include-untracked 2>/dev/null || true
+          git pull --rebase origin main 2>/dev/null || true
+          git stash pop 2>/dev/null || true
+          git add src/ 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: auto-activate week content + update index.jsx [skip ci]"
+          git push 2>/dev/null || true
