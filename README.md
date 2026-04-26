@@ -6,11 +6,11 @@
 
 | | |
 |---|---|
-| Week | override |
+| Week | groq-generated |
 | Days | day38 |
 | Clips | 8 per video |
 | Slots | 5x daily: 7AM/11AM/3PM/7PM/11PM EAT |
-| Run | [#76](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24958973138) |
+| Run | [#77](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24961768166) |
 
 
 
