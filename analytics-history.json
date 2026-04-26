@@ -14,5 +14,21 @@
     "likes": 0,
     "comments": 0,
     "shares": 0
+  },
+  {
+    "date": "2026-04-26",
+    "week": "2026-04-19 to 2026-04-26",
+    "views": 0,
+    "watchMins": 0,
+    "watchHrs": 0,
+    "avgDuration": 0,
+    "subsGained": 0,
+    "subsLost": 0,
+    "netSubs": 0,
+    "totalSubs": 0,
+    "totalViews": 0,
+    "likes": 0,
+    "comments": 0,
+    "shares": 0
   }
 ]
