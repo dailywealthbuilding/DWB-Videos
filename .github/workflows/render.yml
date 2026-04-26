@@ -1,15 +1,19 @@
-name: Render DWB Videos v10.1
+name: Render DWB Videos v10.2
 
-# 3x daily for global reach
-# Slot A: 4AM UTC  = 7AM  EAT  (Asia/AU)
-# Slot B: 9AM UTC  = 12PM EAT  (Europe)
-# Slot C: 4PM UTC  = 7PM  EAT  (US -- original)
+# 5x daily for maximum global reach
+# Slot A: 4AM  UTC = 7AM  EAT  (Asia / Australia morning)
+# Slot B: 8AM  UTC = 11AM EAT  (East Africa / Middle East)
+# Slot C: 12PM UTC = 3PM  EAT  (Europe lunch)
+# Slot D: 16PM UTC = 7PM  EAT  (US East Coast prime time)
+# Slot E: 20PM UTC = 11PM EAT  (US West Coast evening / Asia night)
 
 on:
   schedule:
     - cron: '0 4  * * *'
-    - cron: '0 9  * * *'
+    - cron: '0 8  * * *'
+    - cron: '0 12 * * *'
     - cron: '0 16 * * *'
+    - cron: '0 20 * * *'
   workflow_dispatch:
     inputs:
       days_override:
@@ -21,7 +25,7 @@ on:
         required: false
         default: 'false'
       slot_override:
-        description: 'Force slot: A (7AM EAT), B (12PM EAT), C (7PM EAT)'
+        description: 'Force slot: A B C D E'
         required: false
         default: ''
 
@@ -57,19 +61,78 @@ jobs:
           mkdir -p public/videos public/music public/sfx public/photos public/illustrations
           mkdir -p out out/thumbs out/gifs out/srt
 
+      # =========================================================================
+      # AUTO-SCAN personal clips from public/videos/
+      # Writes public/clip-manifest.json -- zero manual work needed
+      # Runs before every render so new uploads are always detected
+      # =========================================================================
+      - name: Scan personal clip library
+        run: |
+          node << 'SCANEOF'
+          const fs   = require('fs');
+          const path = require('path');
+
+          const VIDEO_DIR       = 'public/videos';
+          const MANIFEST_PATH   = 'public/clip-manifest.json';
+          const PIPELINE_PAT    = /^day\d+_clip\d+\.mp4$/i;
+
+          let manifest = { version: 2, clips: [], idCounter: 0, updatedAt: '' };
+          try {
+            const existing = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+            if (existing.clips && !Array.isArray(existing.clips)) {
+              // Convert old object format to array
+              manifest.clips = Object.values(existing.clips).map(c => c.filename || c);
+              manifest.idCounter = existing.idCounter || 0;
+            } else {
+              manifest = existing;
+            }
+          } catch(e) { /* fresh start */ }
+
+          if (!fs.existsSync(VIDEO_DIR)) {
+            console.log('[SCAN] No public/videos directory yet -- skipping');
+            process.exit(0);
+          }
+
+          const allFiles = fs.readdirSync(VIDEO_DIR)
+            .filter(f => f.toLowerCase().endsWith('.mp4') && !PIPELINE_PAT.test(f))
+            .filter(f => {
+              const sz = fs.statSync(path.join(VIDEO_DIR, f)).size;
+              return sz > 100000; // min 100KB -- skip tiny/corrupt files
+            });
+
+          manifest.clips     = allFiles; // just the filenames, always fresh
+          manifest.count     = allFiles.length;
+          manifest.updatedAt = new Date().toISOString();
+
+          fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2));
+          console.log('[SCAN] Personal clip library: ' + allFiles.length + ' clips');
+          if (allFiles.length > 0) console.log('[SCAN] Clips: ' + allFiles.join(', '));
+          if (allFiles.length < 8) {
+            console.log('[SCAN] TIP: Upload ' + (8 - allFiles.length) + ' more clips to public/videos/ to fully replace API clips');
+          }
+          SCANEOF
+
+      # =========================================================================
+      # DETECT PUBLISH SLOT
+      # =========================================================================
       - name: Detect publish slot
         run: |
           node << 'SLOTEOF'
           const now = new Date(), h = now.getUTCHours();
           const override = '${{ github.event.inputs.slot_override }}' || '';
           let slot, utcHour;
-          if (override === 'A')      { slot = 'A'; utcHour = 4;  }
-          else if (override === 'B') { slot = 'B'; utcHour = 9;  }
-          else if (override === 'C') { slot = 'C'; utcHour = 16; }
-          else if (h < 7)  { slot = 'A'; utcHour = 4;  }
-          else if (h < 12) { slot = 'B'; utcHour = 9;  }
-          else             { slot = 'C'; utcHour = 16; }
-          console.log('Slot: ' + slot + ' | UTC publish hour: ' + utcHour);
+          if      (override === 'A') { slot = 'A'; utcHour = 4;  }
+          else if (override === 'B') { slot = 'B'; utcHour = 8;  }
+          else if (override === 'C') { slot = 'C'; utcHour = 12; }
+          else if (override === 'D') { slot = 'D'; utcHour = 16; }
+          else if (override === 'E') { slot = 'E'; utcHour = 20; }
+          else if (h < 6 ) { slot = 'A'; utcHour = 4;  }
+          else if (h < 10) { slot = 'B'; utcHour = 8;  }
+          else if (h < 14) { slot = 'C'; utcHour = 12; }
+          else if (h < 18) { slot = 'D'; utcHour = 16; }
+          else             { slot = 'E'; utcHour = 20; }
+          const slotNames = {A:'7AM EAT',B:'11AM EAT',C:'3PM EAT',D:'7PM EAT',E:'11PM EAT'};
+          console.log('Slot: ' + slot + ' (' + slotNames[slot] + ') | UTC: ' + utcHour);
           const fs2 = require('fs'), envFile = process.env.GITHUB_ENV;
           if (envFile) {
             fs2.appendFileSync(envFile, 'PUBLISH_SLOT='     + slot    + '\n');
@@ -78,15 +141,9 @@ jobs:
           SLOTEOF
 
       # =========================================================================
-      # GROQ SCRIPT GENERATION -- v10.1 AESTHETIC SYSTEM
-      # KEY CHANGES:
-      #   - 8 bRollQueries (was 6) -- no more clip looping needed
-      #   - Body font: Cormorant or Playfair (elegant serif for aesthetic clips)
-      #   - Body italic: true -- stunning on light backgrounds
-      #   - Position: lower-third by default (keeps clip subject visible)
-      #   - textBackground: glass always on body overlays
-      #   - Font sizes: serif 54-62 (smaller than Montserrat but renders same visual size)
-      #   - Hook: Anton stays (bold contrast, works on any background)
+      # GROQ SCRIPT GENERATION
+      # Generates one unique video per slot run
+      # Aesthetic system: Cormorant/Playfair body fonts, lower-third glass cards
       # =========================================================================
       - name: Generate video script via Groq AI
         if: ${{ github.event.inputs.days_override == '' && github.event.inputs.skip_groq_gen != 'true' }}
@@ -104,17 +161,21 @@ jobs:
 
           function safeTitle(s) { return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100); }
 
-          let counter = { nextDay: 50 };
-          try { counter = JSON.parse(fs.readFileSync('video-counter.json','utf8')); } catch(e){}
-          const dayNum = counter.nextDay;
+          // Read counter from video-counter.json (reset to 38 if missing)
+          let counter = { nextDay: 38 };
+          try { counter = JSON.parse(fs.readFileSync('video-counter.json','utf8')); } catch(e) {
+            console.log('[GROQ] No video-counter.json -- starting from day 38');
+            fs.writeFileSync('video-counter.json', JSON.stringify({nextDay:38}, null, 2));
+          }
+          const dayNum = counter.nextDay || 38;
           const dayId  = 'day' + dayNum;
 
           let history = [];
-          try { history = JSON.parse(fs.readFileSync('content-history.json','utf8')); } catch(e){}
+          try { history = JSON.parse(fs.readFileSync('content-history.json','utf8')); } catch(e) {}
           const recentTopics = history.slice(-20).map(function(h){return h.title;}).join(' | ');
 
           let trending = [];
-          try { trending = JSON.parse(fs.readFileSync('out/.trending_sounds.json','utf8')); } catch(e){}
+          try { trending = JSON.parse(fs.readFileSync('trending-sounds.json','utf8')).sounds || []; } catch(e) {}
 
           const IDEAS = [
             'The 3-account money system every wealthy person uses',
@@ -149,14 +210,16 @@ jobs:
             'The psychological trick that makes saving feel effortless',
             'Why people who earn $200K still go broke -- lifestyle creep explained',
             'The only 3 financial metrics that matter and how to track them',
+            'The truth about passive income no one talks about',
+            'How the top 1% think about money differently than everyone else',
+            'Why your savings account is losing you money right now',
           ];
 
-          // v10.1: Elegant serif body fonts for aesthetic clips
           const FONTS = [
-            {hookFont:'Anton',  bodyFont:'Cormorant'},  // Elegant finance aesthetic
-            {hookFont:'Anton',  bodyFont:'Playfair'},   // Classic editorial
-            {hookFont:'Anton',  bodyFont:'Cormorant'},  // Repeat -- most aesthetic
-            {hookFont:'Oswald', bodyFont:'Playfair'},   // Variation
+            {hookFont:'Anton',  bodyFont:'Cormorant'},
+            {hookFont:'Anton',  bodyFont:'Playfair'},
+            {hookFont:'Anton',  bodyFont:'Cormorant'},
+            {hookFont:'Oswald', bodyFont:'Playfair'},
           ];
 
           const COLORS = [
@@ -170,74 +233,71 @@ jobs:
           const HOOK_ANIMS = ['zoom-punch','stamp-impact','line-reveal','flip-up','glass-lower','split-reveal'];
           const BODY_ANIMS = ['aesthetic-card','elegant-rise','fade-word','editorial-body','stagger','blur-in','slide-up'];
           const CTA_ANIMS  = ['kinetic','glass-lower','word-bounce'];
+          const HASHTAGS   = ['personalfinance','wealthbuilding','financialfreedom','moneytips','moneyhabits','investing101','sidehustle','passiveincome','budgeting','financialliteracy','wealthmindset','savemoney'];
 
-          const HASHTAGS = ['personalfinance','wealthbuilding','financialfreedom','moneytips','moneyhabits','investing101','sidehustle','passiveincome','budgeting','financialliteracy','wealthmindset','savemoney'];
-
-          const idea1       = IDEAS[dayNum % IDEAS.length];
-          const idea2       = IDEAS[(dayNum + 11) % IDEAS.length];
-          const fontPair    = FONTS[dayNum % FONTS.length];
-          const colorScheme = COLORS[dayNum % COLORS.length];
-          const trendCtx    = trending.length > 0 ? '\nTRENDING SOUNDS: ' + trending.slice(0,3).map(function(s){return s.title+' - '+s.artist;}).join(', ') : '';
-
-          const bodyFont = fontPair.bodyFont;
-          const isSerif  = (bodyFont === 'Cormorant' || bodyFont === 'Playfair');
-          const bodySize = isSerif ? 58 : 80;  // serif renders larger visually
+          // Slot-specific idea offset so each slot generates different content
+          const SLOT_OFFSETS = {A:0, B:7, C:14, D:21, E:28};
+          const slotOffset   = SLOT_OFFSETS[SLOT] || 0;
+          const idea1        = IDEAS[(dayNum + slotOffset) % IDEAS.length];
+          const idea2        = IDEAS[(dayNum + slotOffset + 11) % IDEAS.length];
+          const fontPair     = FONTS[(dayNum + slotOffset) % FONTS.length];
+          const colorScheme  = COLORS[(dayNum + slotOffset) % COLORS.length];
+          const trendCtx     = trending.length > 0 ? '\nTRENDING SOUNDS: ' + trending.slice(0,3).map(function(s){return s.title+' - '+s.artist;}).join(', ') : '';
+          const bodyFont     = fontPair.bodyFont;
+          const isSerif      = (bodyFont === 'Cormorant' || bodyFont === 'Playfair');
+          const bodySize     = isSerif ? 58 : 80;
 
           const prompt =
             'You are Ashley, AI creative director for @DailyWealthBuilding -- a faceless automated finance YouTube Shorts channel.\n\n' +
             'CHANNEL AESTHETIC: Minimal, clean, elegant. Background clips are aesthetic faceless videos (white rooms, curtains, hands, fashion, minimal interiors, morning routines). ' +
             'Text appears as frosted glass cards at the LOWER THIRD of screen -- never covering the subject in the center.\n\n' +
-            'MISSION: Generate a scroll-stopping 30-second video for ' + dayId + ' of 90.\n\n' +
+            'MISSION: Generate a scroll-stopping 30-second video for ' + dayId + ' of 90. Slot: ' + SLOT + '\n\n' +
             'RECENT TOPICS (do NOT repeat): ' + (recentTopics||'none yet') + trendCtx + '\n\n' +
             'IDEAS: 1. ' + idea1 + '  2. ' + idea2 + '\n\n' +
             'FONT PAIR: hookFont=' + fontPair.hookFont + ', bodyFont=' + bodyFont + '\n' +
             'COLORS: hook=' + colorScheme.hook + ', body=' + colorScheme.body + ', alt=' + colorScheme.alt + ', cta=' + colorScheme.cta + '\n\n' +
             'OVERLAY TIMING:\n' +
-            '[0] HOOK   0-90   (3s) -- ONE sentence. Full screen center.\n' +
-            '[1] TRUTH  90-270 (6s) -- Reality check. Glass card lower third.\n' +
-            '[2] PROOF  270-450(6s) -- Data. Glass card lower third.\n' +
-            '[3] SYSTEM 450-720(9s) -- Framework. Glass card lower third.\n' +
-            '[4] CTA    720-900(6s) -- Comment bait. Bottom.\n\n' +
+            '[0] HOOK   0-90   (3s) -- ONE sentence. Full screen center. Max 6 words.\n' +
+            '[1] TRUTH  90-270 (6s) -- Reality check. Glass card lower third. Max 3 lines.\n' +
+            '[2] PROOF  270-450(6s) -- Data. Glass card lower third. Max 3 lines.\n' +
+            '[3] SYSTEM 450-720(9s) -- Framework. Glass card lower third. Max 3 lines.\n' +
+            '[4] CTA    720-900(6s) -- Comment bait. Bottom. Ask a question.\n\n' +
             'HOOK animations: ' + HOOK_ANIMS.join(', ') + '\n' +
             'BODY animations: ' + BODY_ANIMS.join(', ') + '\n' +
             'CTA animations:  ' + CTA_ANIMS.join(', ') + '\n\n' +
-            '=== AESTHETIC FONT RULES -- MANDATORY ===\n' +
+            'MANDATORY FONT RULES:\n' +
             'HOOK [0]: font="Anton", fontSize=100, position="middle", stroke={size:3,color:"#000000"}, NO textBackground\n' +
             'BODY [1-3]: font="' + bodyFont + '", fontSize=' + bodySize + ', italic=true, position="lower-third", textBackground="glass", NO stroke\n' +
-            '  - ' + bodyFont + ' is a serif font -- it renders ELEGANTLY at ' + bodySize + 'px on aesthetic clips\n' +
-            '  - Keep body text SHORT: max 8 words per line, max 3 lines\n' +
-            '  - Use italic: true for all body overlays -- essential for the aesthetic look\n' +
             'CTA [4]: font="Anton", fontSize=92, position="bottom-center", stroke={size:3,color:"#000000"}\n\n' +
-            'CONTENT RULES:\n' +
-            '- Specific number in hook (e.g. "3 habits", "$500/month")\n' +
-            '- Short punchy lines -- max 8 words per line\n' +
-            '- No income promises\n\n' +
-            'B-ROLL QUERIES -- EXACTLY 8 (we use 8 clips, not 6):\n' +
-            '- Must match channel aesthetic: white rooms, hands, fashion, minimal interiors, morning\n' +
+            'B-ROLL QUERIES -- EXACTLY 8:\n' +
+            '- Aesthetic faceless: white rooms, hands, fashion, minimal interiors, morning routines\n' +
             '- Good: "woman white room phone morning aesthetic vertical"\n' +
-            '- Bad: "money vertical" "person vertical"\n' +
+            '- Bad: "money vertical" -- too generic\n' +
             '- ALL must end with "vertical"\n\n' +
-            'HASHTAGS (4-5): ' + HASHTAGS.join(', ') + ', day' + dayNum + 'of90\n\n' +
-            'musicMood: one of punchy/motivational/confident/dramatic/focused/rebellious/uplifting\n\n' +
+            'HASHTAGS (5): choose 5 from: ' + HASHTAGS.join(', ') + '\n\n' +
+            'musicMood: punchy/motivational/confident/dramatic/focused/rebellious/uplifting\n\n' +
             'Return ONLY valid JSON. No markdown. No backticks.\n\n' +
             '{"title":"short title","musicMood":"punchy",' +
-            '"bRollQueries":["woman white room phone morning aesthetic vertical","hands ring jewelry coffee vertical","minimal curtains sunlight interior vertical","fashion outfit selfie mirror vertical","laptop white desk morning vertical","candle book white room calm vertical","city walk elegant outfit vertical","hands rings finance journal vertical"],' +
+            '"bRollQueries":["query1 vertical","query2 vertical","query3 vertical","query4 vertical","query5 vertical","query6 vertical","query7 vertical","query8 vertical"],' +
             '"overlays":[' +
             '{"text":"HOOK TEXT","font":"Anton","color":"' + colorScheme.hook + '","stroke":{"size":3,"color":"#000000"},"animation":"zoom-punch","startFrame":0,"endFrame":90,"position":"middle","fontSize":100,"letterSpacing":"0.02em"},' +
             '{"text":"truth text.","font":"' + bodyFont + '","color":"' + colorScheme.body + '","animation":"aesthetic-card","startFrame":90,"endFrame":270,"position":"lower-third","fontSize":' + bodySize + ',"italic":true,"textBackground":"glass"},' +
             '{"text":"proof text.","font":"' + bodyFont + '","color":"' + colorScheme.alt + '","animation":"elegant-rise","startFrame":270,"endFrame":450,"position":"lower-third","fontSize":' + bodySize + ',"italic":true,"textBackground":"glass"},' +
-            '{"text":"system text.","font":"' + bodyFont + '","color":"' + colorScheme.body + '","animation":"editorial-body","startFrame":450,"endFrame":720,"position":"lower-third","fontSize":' + (bodySize - 4) + ',"textBackground":"glass"},' +
-            '{"text":"CTA text","font":"Anton","color":"' + colorScheme.cta + '","stroke":{"size":3,"color":"#000000"},"animation":"kinetic","startFrame":720,"endFrame":900,"position":"bottom-center","fontSize":92}' +
+            '{"text":"system text.","font":"' + bodyFont + '","color":"' + colorScheme.body + '","animation":"editorial-body","startFrame":450,"endFrame":720,"position":"lower-third","fontSize":' + (bodySize-4) + ',"italic":true,"textBackground":"glass"},' +
+            '{"text":"CTA text?","font":"Anton","color":"' + colorScheme.cta + '","stroke":{"size":3,"color":"#000000"},"animation":"kinetic","startFrame":720,"endFrame":900,"position":"bottom-center","fontSize":92}' +
             '],' +
             '"youtubeTitle":"Title | Day ' + dayNum + '/90 | Daily Wealth Building",' +
-            '"youtubeDescription":"Day ' + dayNum + ' of 90 -- description\\n\\n Subscribe\\n@DailyWealthBuilding",' +
+            '"youtubeDescription":"Day ' + dayNum + ' of 90\\n\\nDescription here\\n\\nSubscribe for daily wealth tips\\n@DailyWealthBuilding",' +
             '"tiktokCaption":"caption #personalfinance #day' + dayNum + 'of90",' +
-            '"pinnedComment":"key insight"}';
+            '"pinnedComment":"key insight that adds real value for viewers"}';
 
           function callGroq(p) {
             return new Promise(function(resolve, reject) {
               const body = JSON.stringify({ model:'llama-3.3-70b-versatile', max_tokens:2000, temperature:0.85, messages:[{role:'user',content:p}] });
-              const req  = https.request({ hostname:'api.groq.com', path:'/openai/v1/chat/completions', method:'POST', headers:{ 'Content-Type':'application/json', 'Content-Length':Buffer.byteLength(body), 'Authorization':'Bearer '+GROQ_KEY } }, function(res) {
+              const req  = https.request({
+                hostname:'api.groq.com', path:'/openai/v1/chat/completions', method:'POST',
+                headers:{ 'Content-Type':'application/json', 'Content-Length':Buffer.byteLength(body), 'Authorization':'Bearer '+GROQ_KEY }
+              }, function(res) {
                 let d=''; res.on('data',function(c){d+=c;}); res.on('end',function(){resolve({status:res.statusCode,body:d});});
               });
               req.on('error',reject); req.write(body); req.end();
@@ -248,7 +308,10 @@ jobs:
             if (!NTFY) return Promise.resolve();
             const data = Buffer.from(msg);
             return new Promise(function(resolve) {
-              const req = https.request({ hostname:'ntfy.sh', port:443, path:'/'+NTFY, method:'POST', headers:{ 'Content-Type':'text/plain', 'Content-Length':data.length, 'Title':safeTitle(title), 'Tags':'robot,pencil', 'Priority':'default' } }, function(res){ resolve(); });
+              const req = https.request({
+                hostname:'ntfy.sh', port:443, path:'/'+NTFY, method:'POST',
+                headers:{ 'Content-Type':'text/plain', 'Content-Length':data.length, 'Title':safeTitle(title), 'Tags':'robot,pencil', 'Priority':'default' }
+              }, function(res){ resolve(); });
               req.on('error', function(){resolve();}); req.write(data); req.end();
             });
           }
@@ -263,20 +326,29 @@ jobs:
               raw = raw.replace(/```json|```/g,'').trim();
               let vd;
               try { vd = JSON.parse(raw); }
-              catch(e) { console.log('JSON parse failed: '+e.message); process.exit(0); }
+              catch(e) { console.log('JSON parse failed: '+e.message+'\nRaw: '+raw.slice(0,200)); process.exit(0); }
 
               vd.id = dayId; vd.filename = dayId+'_final.mp4'; vd.music = dayId+'.mp3';
 
               // Enforce 8 bRollQueries
               if (!vd.bRollQueries || vd.bRollQueries.length < 8) {
                 vd.bRollQueries = vd.bRollQueries || [];
-                const aes = ['woman white room aesthetic vertical','hands jewelry morning vertical','minimal curtains light vertical','fashion outfit mirror vertical','laptop white desk vertical','candle book room vertical','city walk elegant vertical','hands coffee morning vertical'];
+                const aes = [
+                  'woman white room phone morning aesthetic vertical',
+                  'hands ring jewelry coffee vertical',
+                  'minimal curtains sunlight interior vertical',
+                  'fashion outfit selfie mirror vertical',
+                  'laptop white desk morning vertical',
+                  'candle book white room calm vertical',
+                  'city walk elegant outfit vertical',
+                  'hands coffee morning finance vertical'
+                ];
                 while (vd.bRollQueries.length < 8) vd.bRollQueries.push(aes[vd.bRollQueries.length % aes.length]);
               }
 
               if (!vd.overlays || !vd.overlays.length) { console.log('No overlays'); process.exit(1); }
 
-              // Enforce v10.1 aesthetic font sizes
+              // Enforce v10.2 aesthetic rules
               vd.overlays = vd.overlays.map(function(o, i) {
                 const isSerif2 = ['Cormorant','Playfair'].includes(o.font);
                 if (i === 0) {
@@ -286,11 +358,8 @@ jobs:
                 } else {
                   if (isSerif2 && (o.fontSize || 0) > 65) o.fontSize = 58;
                   if (!isSerif2 && (o.fontSize || 0) < 76) o.fontSize = 80;
-                  // Force italic on body serif overlays
                   if (isSerif2 && o.italic === undefined) o.italic = true;
-                  // Force glass background on body overlays
                   if (!o.textBackground) o.textBackground = 'glass';
-                  // Force lower-third position on body overlays
                   if (o.position === 'middle' || o.position === 'center') o.position = 'lower-third';
                 }
                 return o;
@@ -299,40 +368,56 @@ jobs:
               fs.mkdirSync('src',{recursive:true});
               fs.writeFileSync('src/current-video.js',
                 '// Auto-generated -- ' + dayId + ' -- Slot ' + SLOT + ' -- ' + new Date().toISOString().slice(0,10) + '\n' +
-                '// Font: ' + fontPair.hookFont + '/' + bodyFont + ' | Aesthetic: lower-third glass cards\n' +
                 'export const currentVideo = ' + JSON.stringify(vd, null, 2) + ';\n'
               );
 
               const dayAssets = {};
               dayAssets[dayId] = vd.bRollQueries.map(function(q,i){ return {id:dayId+'_clip'+(i+1), q:q}; });
               const dayMeta = {};
-              dayMeta[dayId] = { youtubeTitle:vd.youtubeTitle||'', youtubeDescription:vd.youtubeDescription||'', tiktokCaption:vd.tiktokCaption||'', pinnedComment:vd.pinnedComment||'', music:dayId+'.mp3', musicMood:vd.musicMood||'motivational' };
+              dayMeta[dayId] = {
+                youtubeTitle:vd.youtubeTitle||'', youtubeDescription:vd.youtubeDescription||'',
+                tiktokCaption:vd.tiktokCaption||'', pinnedComment:vd.pinnedComment||'',
+                music:dayId+'.mp3', musicMood:vd.musicMood||'motivational'
+              };
 
               fs.mkdirSync('out',{recursive:true});
-              fs.writeFileSync('out/.week_info.json', JSON.stringify({ week:'groq-generated', days:[dayId], dayAssets:dayAssets, dayMeta:dayMeta, slot:SLOT }, null, 2));
+              fs.writeFileSync('out/.week_info.json', JSON.stringify({
+                week:'groq-generated', days:[dayId], dayAssets:dayAssets, dayMeta:dayMeta, slot:SLOT
+              }, null, 2));
 
               history.push({ day:dayId, title:vd.title||dayId, hook:((vd.overlays[0]||{}).text||'').replace(/\n/g,' '), generatedAt:new Date().toISOString(), slot:SLOT });
               if (history.length > 60) history = history.slice(-60);
               fs.writeFileSync('content-history.json', JSON.stringify(history, null, 2));
 
-              console.log('Generated: ' + dayId + ' | Font: ' + fontPair.hookFont + '/' + bodyFont + ' | Slot: ' + SLOT);
-              await sendNtfy('Script ready [' + SLOT + ']: ' + dayId + '\nFont: ' + fontPair.hookFont + '/' + bodyFont + '\nHook: ' + ((vd.overlays[0]||{}).text||'').replace(/\n/g,' ').slice(0,80), 'DWB Script Ready ' + dayId);
-            } catch(e) { console.log('Groq error: ' + e.message); }
+              console.log('[GROQ] Generated: ' + dayId + ' | Font: ' + fontPair.hookFont + '/' + bodyFont + ' | Slot: ' + SLOT);
+              await sendNtfy(
+                'Script ready [Slot ' + SLOT + ']: ' + dayId + '\nFont: ' + fontPair.hookFont + '/' + bodyFont + '\nHook: ' + ((vd.overlays[0]||{}).text||'').replace(/\n/g,' ').slice(0,80),
+                'DWB Script Ready ' + dayId
+              );
+            } catch(e) { console.log('[GROQ] Error: ' + e.message); }
           })();
           GROQEOF
 
       # =========================================================================
-      # DETECT ACTIVE WEEK -- v10.1: 8 clips per day
+      # DETECT ACTIVE WEEK -- v10.2 CRASH-PROOF
+      # FIXES:
+      #   1. Never exits 1 on missing day -- scans forward up to 14 days
+      #   2. Searches ALL content files, not just latest week
+      #   3. Soft-exits (0) if no content found anywhere -- sends ntfy alert
+      #   4. Works with both default export (week6) and named export (week7+)
       # =========================================================================
       - name: Detect active week from content files
         run: |
           node << 'DETECTEOF'
-          const fs = require('fs'), path = require('path');
+          const fs   = require('fs');
+          const path = require('path');
+
           const skipGroq     = '${{ github.event.inputs.skip_groq_gen }}' === 'true';
           const daysOverride = '${{ github.event.inputs.days_override }}' || '';
           const hasWeekInfo  = fs.existsSync('out/.week_info.json');
           const useGroq      = hasWeekInfo && !skipGroq && !daysOverride;
 
+          // === GROQ MODE: week_info already written by Groq step ===
           if (useGroq) {
             const info = JSON.parse(fs.readFileSync('out/.week_info.json', 'utf8'));
             const envFile = process.env.GITHUB_ENV;
@@ -340,85 +425,180 @@ jobs:
               fs.appendFileSync(envFile, 'ACTIVE_WEEK=' + info.week + '\n');
               fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + info.days.join(' ') + '\n');
             }
+            console.log('[DETECT] Groq mode: ' + info.days.join(', '));
             process.exit(0);
           }
 
-          const srcDir       = path.join(process.cwd(), 'src');
-          const contentFiles = fs.existsSync(srcDir) ? fs.readdirSync(srcDir).filter(function(f){return f.match(/^week\d+-content\.js$/);}) : [];
-          if (contentFiles.length === 0) { console.log('ERROR: No week content files'); process.exit(1); }
+          // === CONTENT FILE MODE ===
+          const srcDir = path.join(process.cwd(), 'src');
+          const contentFiles = fs.existsSync(srcDir)
+            ? fs.readdirSync(srcDir).filter(f => f.match(/^week\d+-content\.js$/))
+            : [];
+
+          if (contentFiles.length === 0) {
+            console.log('[DETECT] ERROR: No week content files found in src/');
+            // Soft exit -- do not crash the whole pipeline
+            const envFile = process.env.GITHUB_ENV;
+            if (envFile) fs.appendFileSync(envFile, 'ACTIVE_DAYS=\n');
+            process.exit(0);
+          }
+
+          // Parse ALL content files to get all available entries
+          function parseContentFile(filePath) {
+            try {
+              const src = fs.readFileSync(filePath, 'utf8');
+              // Try named export first (week7+): export const week7Videos = [...]
+              const nm = src.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=\/\/|$)/m);
+              // Try default export (week6): export default [...]
+              const dm = src.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
+              const arr = nm ? nm[1] : (dm ? dm[1] : null);
+              if (!arr) return [];
+              const cleaned = arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '');
+              return eval(cleaned) || [];
+            } catch(e) {
+              console.log('[DETECT] Warning: could not parse ' + path.basename(filePath) + ': ' + e.message);
+              return [];
+            }
+          }
 
           let allEntries = [];
           for (const file of contentFiles) {
-            try {
-              const source = fs.readFileSync(path.join(srcDir, file), 'utf8');
-              const dm = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
-              const nm = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-              const arr = dm ? dm[1] : (nm ? nm[1] : null);
-              if (arr) allEntries = allEntries.concat(eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '')));
-            } catch(e) { console.log('Warning: ' + file + ': ' + e.message); }
+            const entries = parseContentFile(path.join(srcDir, file));
+            allEntries = allEntries.concat(entries.filter(e => e && e.id));
+            console.log('[DETECT] ' + file + ': ' + entries.length + ' entries');
           }
 
-          if (allEntries.length === 0) { console.log('ERROR: No entries found'); process.exit(1); }
+          if (allEntries.length === 0) {
+            console.log('[DETECT] No parseable entries in any content file. Soft-skipping.');
+            process.exit(0);
+          }
 
-          let activeDays;
+          // Build a set of all available day IDs
+          const availableIds = new Set(allEntries.map(e => e.id).filter(Boolean));
+          console.log('[DETECT] Available days: ' + [...availableIds].join(', '));
+
+          // === DAYS OVERRIDE mode ===
           if (daysOverride) {
-            activeDays = daysOverride.split(',').map(function(d){return d.trim();}).filter(Boolean);
-          } else {
-            const weekNums = contentFiles.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});
-            const source = fs.readFileSync(path.join(srcDir,'week'+weekNums[0]+'-content.js'),'utf8');
-            const dm = source.match(/export\s+default\s+(\[[\s\S]*?\]);?\s*$/m);
-            const nm = source.match(/export\s+const\s+\w+\s*=\s*(\[[\s\S]*?\]);\s*(?=export|$)/m);
-            const arr = dm?dm[1]:(nm?nm[1]:null);
-            try { activeDays = arr ? eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g,'')).map(function(e){return e.id;}).filter(Boolean) : []; }
-            catch(e) { activeDays = []; }
+            const activeDays = daysOverride.split(',').map(d => d.trim()).filter(Boolean);
+            const activeEntries = allEntries.filter(e => activeDays.includes(e.id));
+            if (activeEntries.length === 0) {
+              console.log('[DETECT] Override days not found: ' + activeDays.join(', '));
+              console.log('[DETECT] Available: ' + [...availableIds].join(', '));
+              process.exit(0);
+            }
+            writeWeekInfo(activeDays, allEntries, 'override', activeEntries);
+            process.exit(0);
           }
 
-          const activeEntries = allEntries.filter(function(e){return e.id && activeDays.indexOf(e.id) !== -1;});
-          if (activeEntries.length === 0) { console.log('ERROR: No entries for: ' + activeDays.join(', ')); process.exit(1); }
+          // === AUTO mode: find next unrendered day from counter ===
+          // Read from video-counter.json
+          let counter = { nextDay: 38 };
+          try { counter = JSON.parse(fs.readFileSync('video-counter.json', 'utf8')); } catch(e) {
+            console.log('[DETECT] No counter -- defaulting to day38');
+          }
+          const startDay = counter.nextDay || 38;
 
-          // v10.1: 8 aesthetic clips per day
-          const AES_DEFAULTS = [
-            'woman white room phone morning aesthetic vertical',
-            'hands ring jewelry coffee vertical',
-            'minimal curtains sunlight interior vertical',
-            'fashion outfit selfie mirror vertical',
-            'laptop white desk morning vertical',
-            'candle book white room calm vertical',
-            'city walk elegant outfit vertical',
-            'hands coffee morning finance vertical',
-          ];
-
-          const dayAssets = {};
-          for (const entry of activeEntries) {
-            const queries = (entry.bRollQueries || []).slice(0, 8);
-            const padded  = queries.slice();
-            let fi = 0;
-            while (padded.length < 8) { padded.push(AES_DEFAULTS[fi++ % AES_DEFAULTS.length]); }
-            dayAssets[entry.id] = padded.map(function(q, i){return {id:entry.id+'_clip'+(i+1), q:q};});
+          // Search forward from startDay until we find an available day
+          let foundDay = null;
+          for (let offset = 0; offset <= 14; offset++) {
+            const candidate = 'day' + (startDay + offset);
+            if (availableIds.has(candidate)) {
+              foundDay = candidate;
+              if (offset > 0) console.log('[DETECT] Skipped to ' + foundDay + ' (day' + startDay + ' not in content files)');
+              break;
+            }
+            if (offset > 0) console.log('[DETECT] day' + (startDay + offset) + ' not found, trying next...');
           }
 
-          const dayMeta = {};
-          for (const entry of activeEntries) {
-            if (!entry.id) continue;
-            dayMeta[entry.id] = { youtubeTitle:entry.youtubeTitle||'', youtubeDescription:entry.youtubeDescription||'', tiktokCaption:entry.tiktokCaption||'', pinnedComment:entry.pinnedComment||'', music:entry.music||'', musicMood:entry.musicMood||'' };
+          if (!foundDay) {
+            console.log('[DETECT] No content found for days ' + startDay + ' through ' + (startDay + 14));
+            console.log('[DETECT] All available content may have been rendered. Soft-skipping.');
+
+            // Send ntfy alert if NTFY is set
+            try {
+              const https = require('https');
+              const NTFY = process.env.NTFY_TOPIC || '';
+              if (NTFY) {
+                const msg = Buffer.from('DWB pipeline has no more content.\nNext day: ' + startDay + '\nAvailable: ' + [...availableIds].join(', ') + '\nUpload new week content file!');
+                const req = https.request({
+                  hostname:'ntfy.sh', port:443, path:'/'+NTFY, method:'POST',
+                  headers:{'Content-Type':'text/plain','Content-Length':msg.length,'Title':'DWB: No Content Available','Tags':'warning','Priority':'high'}
+                }, function(){});
+                req.on('error',function(){});
+                req.write(msg); req.end();
+              }
+            } catch(e) {}
+
+            // Soft exit -- do NOT crash
+            process.exit(0);
           }
 
-          const weekLabel = daysOverride ? 'override' : 'week-auto';
-          fs.mkdirSync('out',{recursive:true});
-          fs.writeFileSync('out/.week_info.json', JSON.stringify({week:weekLabel, days:activeDays, dayAssets:dayAssets, dayMeta:dayMeta},null,2));
+          const activeEntries = allEntries.filter(e => e.id === foundDay);
+          writeWeekInfo([foundDay], allEntries, 'auto', activeEntries);
 
-          const envFile = process.env.GITHUB_ENV;
-          if (envFile) {
-            fs.appendFileSync(envFile, 'ACTIVE_WEEK=' + weekLabel + '\n');
-            fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + activeDays.join(' ') + '\n');
+          function writeWeekInfo(activeDays, allEntries, weekLabel, activeEntries) {
+            const AES_DEFAULTS = [
+              'woman white room phone morning aesthetic vertical',
+              'hands ring jewelry coffee vertical',
+              'minimal curtains sunlight interior vertical',
+              'fashion outfit selfie mirror vertical',
+              'laptop white desk morning vertical',
+              'candle book white room calm vertical',
+              'city walk elegant outfit vertical',
+              'hands coffee morning finance vertical',
+            ];
+
+            const dayAssets = {};
+            for (const entry of activeEntries) {
+              const queries = (entry.bRollQueries || []).slice(0, 8);
+              const padded  = queries.slice();
+              let fi = 0;
+              while (padded.length < 8) { padded.push(AES_DEFAULTS[fi++ % AES_DEFAULTS.length]); }
+              dayAssets[entry.id] = padded.map(function(q, i){ return {id:entry.id+'_clip'+(i+1), q:q}; });
+            }
+
+            const dayMeta = {};
+            for (const entry of activeEntries) {
+              if (!entry.id) continue;
+              dayMeta[entry.id] = {
+                youtubeTitle:entry.youtubeTitle||'', youtubeDescription:entry.youtubeDescription||'',
+                tiktokCaption:entry.tiktokCaption||'', pinnedComment:entry.pinnedComment||'',
+                music:entry.music||'', musicMood:entry.musicMood||''
+              };
+            }
+
+            fs.mkdirSync('out', {recursive:true});
+            fs.writeFileSync('out/.week_info.json', JSON.stringify({
+              week:weekLabel, days:activeDays, dayAssets:dayAssets, dayMeta:dayMeta
+            }, null, 2));
+
+            const envFile = process.env.GITHUB_ENV;
+            if (envFile) {
+              fs.appendFileSync(envFile, 'ACTIVE_WEEK=' + weekLabel + '\n');
+              fs.appendFileSync(envFile, 'ACTIVE_DAYS=' + activeDays.join(' ') + '\n');
+            }
+            console.log('[DETECT] Active: ' + activeDays.join(', '));
           }
-          console.log('Active: ' + activeDays.join(', ') + ' | 8 clips each');
           DETECTEOF
+
+      # =========================================================================
+      # SKIP CHECK -- if no active days found, skip remaining steps
+      # =========================================================================
+      - name: Check for active days
+        run: |
+          if [ -z "${{ env.ACTIVE_DAYS }}" ]; then
+            echo "No active days detected -- pipeline complete (soft skip)"
+            echo "SKIP_PIPELINE=true" >> $GITHUB_ENV
+          else
+            echo "Active days: ${{ env.ACTIVE_DAYS }}"
+            echo "SKIP_PIPELINE=false" >> $GITHUB_ENV
+          fi
 
       # =========================================================================
       # DOWNLOAD SFX
       # =========================================================================
       - name: Download SFX
+        if: env.SKIP_PIPELINE != 'true'
         run: |
           mkdir -p public/sfx
           node << 'SFXEOF'
@@ -438,6 +618,7 @@ jobs:
       # DOWNLOAD MUSIC
       # =========================================================================
       - name: Download music (Jamendo -> Pixabay -> fallback)
+        if: env.SKIP_PIPELINE != 'true'
         env:
           JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
           PIXABAY_API_KEY:   ${{ secrets.PIXABAY_API_KEY }}
@@ -457,12 +638,12 @@ jobs:
           MUSICEOF
 
       # =========================================================================
-      # DOWNLOAD BACKGROUND VIDEOS -- v10.1: 8 clips per day
-      # Personal library: needs 8+ clips now (was 6+)
-      # Short 4-6s clips work perfectly -- 8 clips x ~3.7s each = 30s video
-      # NO LOOPING NEEDED -- each clip plays once in its Sequence segment
+      # DOWNLOAD BACKGROUND VIDEOS -- 8 clips per day
+      # Uses personal library from public/videos/ first (auto-detected)
+      # Falls back to Pixabay + Pexels + Ken Burns
       # =========================================================================
       - name: Download background videos (8 clips per day)
+        if: env.SKIP_PIPELINE != 'true'
         env:
           PIXABAY_API_KEY:     ${{ secrets.PIXABAY_API_KEY }}
           PEXELS_API_KEY:      ${{ secrets.PEXELS_API_KEY }}
@@ -471,52 +652,54 @@ jobs:
           mkdir -p public/videos
           node << 'VIDEOEOF'
           const https=require('https'),http=require('http'),fs=require('fs'),path=require('path');
-          const PXB=process.env.PIXABAY_API_KEY||'',PXL=process.env.PEXELS_API_KEY||'',UNS=process.env.UNSPLASH_ACCESS_KEY||'';
+          const PXB=process.env.PIXABAY_API_KEY||'',PXL=process.env.PEXELS_API_KEY||'';
           let info={dayAssets:{}};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
           const DA=info.dayAssets||{};if(!Object.keys(DA).length){console.log('No dayAssets');process.exit(0);}
-          const PIPELINE_CLIP_PATTERN=/^day\d+_clip\d+\.mp4$/;
-          const videoDir='public/videos';
-          const allFiles=fs.existsSync(videoDir)?fs.readdirSync(videoDir):[];
-          const personalLibrary=allFiles.filter(function(f){
-            if(!f.toLowerCase().endsWith('.mp4'))return false;
-            if(PIPELINE_CLIP_PATTERN.test(f))return false;
-            return fs.statSync(path.join(videoDir,f)).size>100000;
-          });
-          if(personalLibrary.length>0){console.log('=== PERSONAL LIBRARY: '+personalLibrary.length+' clips (need 8+ for full use) ===');}
+
+          // Load personal clip manifest (written by scan step)
+          let personalClips = [];
+          try {
+            const manifest = JSON.parse(fs.readFileSync('public/clip-manifest.json','utf8'));
+            personalClips = (manifest.clips || []).filter(f => fs.existsSync(path.join('public/videos', f)) && fs.statSync(path.join('public/videos', f)).size > 100000);
+          } catch(e) {}
+          if (personalClips.length > 0) console.log('=== PERSONAL LIBRARY: ' + personalClips.length + ' clips ===');
+
           function shuffleForDay(arr,seed){const copy=arr.slice();let s=seed;for(let i=copy.length-1;i>0;i--){s=(s*1664525+1013904223)&0xffffffff;const j=Math.abs(s)%(i+1);const tmp=copy[i];copy[i]=copy[j];copy[j]=tmp;}return copy;}
           function score(c){let s=0;const w=c.width||0,h=c.height||0;if(w>=1080&&h>=1920)s+=50;else if(h>=w)s+=30;else if(w>=1920)s+=20;else s+=5;if(h>w)s+=20;const d=c.duration||0;if(d>=4&&d<=10)s+=20;else if(d>=3)s+=10;else if(d>0)s+=3;return s;}
           function fetchJSON(url,headers){return new Promise(function(resolve,reject){const lib=url.startsWith('https')?https:http;lib.get(url,{headers:Object.assign({'User-Agent':'DWB/1.0'},headers||{})},function(res){if(res.statusCode===301||res.statusCode===302)return fetchJSON(res.headers.location,headers).then(resolve).catch(reject);let d='';res.on('data',function(c){d+=c;});res.on('end',function(){try{resolve(JSON.parse(d));}catch(e){reject(new Error('parse fail'));}});}).on('error',reject);});}
           function dlFile(url,dest){return new Promise(function(resolve,reject){const f=fs.createWriteStream(dest);const get=function(u){const lib=u.startsWith('https')?https:http;lib.get(u,{headers:{'User-Agent':'DWB/1.0'}},function(res){if(res.statusCode===301||res.statusCode===302){f.close();return get(res.headers.location);}if(res.statusCode!==200){f.close();reject(new Error('HTTP '+res.statusCode));return;}res.pipe(f);f.on('finish',function(){f.close();resolve();});}).on('error',function(e){f.close();reject(e);});};get(url);});}
           const sleep=function(ms){return new Promise(function(r){setTimeout(r,ms);});};
-          async function fetchPixabay(q){if(!PXB)return[];try{let data=await fetchJSON('https://pixabay.com/api/videos/?key='+PXB+'&q='+encodeURIComponent(q)+'&orientation=vertical&per_page=15&video_type=film&min_height=720');let hits=data.hits||[];if(!hits.length){data=await fetchJSON('https://pixabay.com/api/videos/?key='+PXB+'&q='+encodeURIComponent(q)+'&per_page=15&video_type=film');hits=data.hits||[];}return hits.map(function(hit){const v=hit.videos||{},best=v.large||v.medium||v.small||{};if(!best.url)return null;return{source:'Pixabay',url:best.url,width:best.width||0,height:best.height||0,duration:hit.duration||0,fileSize:best.size||0,score:0};}).filter(Boolean);}catch(e){return[];}}
-          async function fetchPexels(q){if(!PXL)return[];try{const data=await fetchJSON('https://api.pexels.com/videos/search?query='+encodeURIComponent(q)+'&per_page=15&orientation=portrait&min_width=720',{'Authorization':PXL});const cands=[];for(const vid of (data.videos||[])){const files=(vid.video_files||[]).filter(function(f){return f.file_type==='video/mp4';}).sort(function(a,b){return(b.width*b.height)-(a.width*a.height);});if(!files.length)continue;const best=files[0];cands.push({source:'Pexels',url:best.link,width:best.width||vid.width||0,height:best.height||vid.height||0,duration:vid.duration||0,fileSize:0,score:0});}return cands;}catch(e){return[];}}
+          async function fetchPixabay(q){if(!PXB)return[];try{let data=await fetchJSON('https://pixabay.com/api/videos/?key='+PXB+'&q='+encodeURIComponent(q)+'&orientation=vertical&per_page=15&video_type=film&min_height=720');let hits=data.hits||[];if(!hits.length){data=await fetchJSON('https://pixabay.com/api/videos/?key='+PXB+'&q='+encodeURIComponent(q)+'&per_page=15&video_type=film');hits=data.hits||[];}return hits.map(function(hit){const v=hit.videos||{},best=v.large||v.medium||v.small||{};if(!best.url)return null;return{source:'Pixabay',url:best.url,width:best.width||0,height:best.height||0,duration:hit.duration||0,score:0};}).filter(Boolean);}catch(e){return[];}}
+          async function fetchPexels(q){if(!PXL)return[];try{const data=await fetchJSON('https://api.pexels.com/videos/search?query='+encodeURIComponent(q)+'&per_page=15&orientation=portrait&min_width=720',{'Authorization':PXL});const cands=[];for(const vid of (data.videos||[])){const files=(vid.video_files||[]).filter(function(f){return f.file_type==='video/mp4';}).sort(function(a,b){return(b.width*b.height)-(a.width*a.height);});if(!files.length)continue;const best=files[0];cands.push({source:'Pexels',url:best.link,width:best.width||vid.width||0,height:best.height||vid.height||0,duration:vid.duration||0,score:0});}return cands;}catch(e){return[];}}
           async function makeKenBurns(q,dest){const tmp=dest+'_tmp.jpg';try{const cq=encodeURIComponent(q.replace(/vertical/gi,'').trim());const imgUrl='https://source.unsplash.com/1080x1920/?'+cq;await dlFile(imgUrl,tmp);if(!fs.existsSync(tmp)||fs.statSync(tmp).size<10000)throw new Error('img too small');const{execSync}=require('child_process');execSync('ffmpeg -loop 1 -i "'+tmp+'" -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" -t 10 -c:v libx264 -pix_fmt yuv420p -y "'+dest+'" 2>/dev/null',{stdio:'pipe'});if(fs.existsSync(tmp))fs.unlinkSync(tmp);const vs=fs.existsSync(dest)?fs.statSync(dest).size:0;if(vs<10000)throw new Error('too small');console.log('KenBurns: '+path.basename(dest));return true;}catch(e){if(fs.existsSync(tmp))fs.unlinkSync(tmp);return false;}}
           (async function(){
             let dl=0,skip=0,fail=0,kb=0,personal=0;
             for(const day of Object.keys(DA)){
               const assets=DA[day];
-              const dayNum=parseInt(day.replace('day',''))||50;
+              const dayNum=parseInt(day.replace('day',''))||38;
               console.log('\n=== '+day+' ('+assets.length+' clips needed) ===');
-              // v10.1: 8+ personal clips for full library mode
-              if(personalLibrary.length>=8){
-                const shuffled=shuffleForDay(personalLibrary,dayNum);
+              // Use personal clips if we have 8+
+              if(personalClips.length>=8){
+                const shuffled=shuffleForDay(personalClips,dayNum);
                 const picked=shuffled.slice(0,8);
                 let allGood=true;
                 for(let i=0;i<8;i++){
-                  const src=path.join(videoDir,picked[i]);
-                  const dest=path.join(videoDir,day+'_clip'+(i+1)+'.mp4');
+                  const src=path.join('public/videos',picked[i]);
+                  const dest=path.join('public/videos',day+'_clip'+(i+1)+'.mp4');
                   if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){skip++;continue;}
                   try{fs.copyFileSync(src,dest);console.log('  clip'+(i+1)+': '+picked[i]);personal++;}catch(e){allGood=false;}
                 }
                 if(allGood)continue;
-              } else if(personalLibrary.length>0){
-                const shuffled=shuffleForDay(personalLibrary,dayNum);
+              } else if(personalClips.length>0){
+                // Mix personal + API
+                const shuffled=shuffleForDay(personalClips,dayNum);
                 for(let i=0;i<Math.min(shuffled.length,assets.length);i++){
-                  const src=path.join(videoDir,shuffled[i%shuffled.length]);
-                  const dest=path.join(videoDir,day+'_clip'+(i+1)+'.mp4');
+                  const src=path.join('public/videos',shuffled[i%shuffled.length]);
+                  const dest=path.join('public/videos',day+'_clip'+(i+1)+'.mp4');
                   if(!fs.existsSync(dest)||fs.statSync(dest).size<50000){try{fs.copyFileSync(src,dest);personal++;}catch(e){}}
                 }
               }
+              // API fallback for remaining clips
               for(const item of assets){
                 const dest='public/videos/'+item.id+'.mp4';
                 if(fs.existsSync(dest)&&fs.statSync(dest).size>50000){skip++;continue;}
@@ -532,11 +715,11 @@ jobs:
               }
             }
             console.log('\nSummary: Personal='+personal+' API='+dl+' Cached='+skip+' KenBurns='+kb+' Failed='+fail);
-            if(personalLibrary.length<8)console.log('TIP: Upload '+Math.max(0,8-personalLibrary.length)+' more clips to public/videos/ to enable full personal library mode (8 clips).');
           })();
           VIDEOEOF
 
       - name: Verify clips and create placeholders
+        if: env.SKIP_PIPELINE != 'true'
         run: |
           node << 'VERIFYEOF'
           const fs=require('fs'),{execSync}=require('child_process');
@@ -550,6 +733,7 @@ jobs:
           find public/videos -name "*.mp4" -size +1k 2>/dev/null | wc -l | xargs echo "Total clips:"
 
       - name: Run pre-render validator
+        if: env.SKIP_PIPELINE != 'true'
         run: |
           if [ -f "validate.js" ]; then node validate.js && echo "OK" || exit 1; else echo "skipping"; fi
 
@@ -557,13 +741,14 @@ jobs:
       # RENDER
       # =========================================================================
       - name: Render all videos
+        if: env.SKIP_PIPELINE != 'true'
         run: |
           BROWSER="./node_modules/.remotion/chrome-headless-shell/linux64/chrome-headless-shell-linux64/chrome-headless-shell"
           DAYS_INPUT="${{ github.event.inputs.days_override }}"
           if [ -n "$DAYS_INPUT" ]; then RENDER_DAYS=$(echo "$DAYS_INPUT" | tr ',' ' ')
           else RENDER_DAYS="${{ env.ACTIVE_DAYS }}"; fi
           echo "=== Rendering: $RENDER_DAYS ==="
-          FAILED=0; PASSED=0; START=$(date +%s)
+          FAILED=0; PASSED=0
           for DAY in $RENDER_DAYS; do
             echo "--- Rendering ${DAY} ---"
             npx remotion render src/index.jsx ${DAY} out/${DAY}_final.mp4 \
@@ -580,19 +765,19 @@ jobs:
           if [ $FAILED -gt 0 ]; then exit 1; fi
 
       - name: Audio normalization (-14 LUFS)
-        if: success()
+        if: success() && env.SKIP_PIPELINE != 'true'
         run: |
           DAYS="${{ github.event.inputs.days_override }}"; [ -z "$DAYS" ] && DAYS="${{ env.ACTIVE_DAYS }}" || DAYS=$(echo "$DAYS"|tr ',' ' ')
           for DAY in $DAYS; do FILE="out/${DAY}_final.mp4"; [ -f "$FILE" ] && ffmpeg -i "$FILE" -af loudnorm=I=-14:TP=-1.5:LRA=11 -c:v copy -c:a aac -b:a 192k "out/${DAY}_norm.mp4" -y -loglevel error && mv "out/${DAY}_norm.mp4" "$FILE" && echo "Normalized: ${DAY}" || true; done
 
       - name: Generate thumbnails
-        if: success()
+        if: success() && env.SKIP_PIPELINE != 'true'
         run: |
           DAYS="${{ github.event.inputs.days_override }}"; [ -z "$DAYS" ] && DAYS="${{ env.ACTIVE_DAYS }}" || DAYS=$(echo "$DAYS"|tr ',' ' ')
           for DAY in $DAYS; do [ -f "out/${DAY}_final.mp4" ] && ffmpeg -ss 00:00:01 -i "out/${DAY}_final.mp4" -frames:v 1 -q:v 2 "out/thumbs/${DAY}_thumb.jpg" -y -loglevel error && echo "Thumb: ${DAY}" || true; done
 
       - name: Generate GIF teasers
-        if: success()
+        if: success() && env.SKIP_PIPELINE != 'true'
         run: |
           DAYS="${{ github.event.inputs.days_override }}"; [ -z "$DAYS" ] && DAYS="${{ env.ACTIVE_DAYS }}" || DAYS=$(echo "$DAYS"|tr ',' ' ')
           for DAY in $DAYS; do
@@ -605,13 +790,13 @@ jobs:
           done
 
       - name: Generate SRT files
-        if: success()
+        if: success() && env.SKIP_PIPELINE != 'true'
         run: |
           node << 'SRTEOF'
           const fs=require('fs'),path=require('path');
           let entries=[];
           if(fs.existsSync('src/current-video.js')){try{const s=fs.readFileSync('src/current-video.js','utf8');const m=s.match(/export const currentVideo = ([\s\S]+);[\s\n]*$/);if(m)entries=[JSON.parse(m[1])];}catch(e){}}
-          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const s=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const dm=s.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);const nm=s.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);\s*(?=export|$)/m);const arr=dm?dm[1]:(nm?nm[1]:null);if(arr)entries=eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g,''));}catch(e){}}}
+          if(!entries.length){const sd=path.join(process.cwd(),'src');const files=fs.existsSync(sd)?fs.readdirSync(sd).filter(function(f){return f.match(/^week\d+-content\.js$/)}):[];const wn=files.map(function(f){return parseInt(f.match(/week(\d+)/)[1]);}).sort(function(a,b){return b-a;});if(wn.length){try{const s=fs.readFileSync(path.join(sd,'week'+wn[0]+'-content.js'),'utf8');const nm=s.match(/export\s+const\s+\w+\s*=\s*([\s\S]*?\]);/m);const dm=s.match(/export\s+default\s+([\s\S]*?\]);?\s*$/m);const arr=nm?nm[1]:(dm?dm[1]:null);if(arr)entries=eval(arr.replace(/[^\x09\x0A\x0D\x20-\x7E]/g,''));}catch(e){}}}
           function toSRT(f){const ms=Math.round((f/30)*1000);const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000),ms2=ms%1000;return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+','+String(ms2).padStart(3,'0');}
           let gen=0;for(const e of entries){if(!e.overlays||!e.id)continue;const lines=[];let idx=1;for(const o of e.overlays){if(!o.text)continue;lines.push(String(idx));lines.push(toSRT(o.startFrame)+' --> '+toSRT(o.endFrame));lines.push(o.text.replace(/\n/g,' '));lines.push('');idx++;}if(lines.length){fs.mkdirSync('out/srt',{recursive:true});fs.writeFileSync('out/srt/'+e.id+'.srt',lines.join('\n'));gen++;}}
           console.log('SRT: '+gen);
@@ -621,6 +806,7 @@ jobs:
       # YOUTUBE UPLOAD -- slot-aware scheduling
       # =========================================================================
       - name: Upload to YouTube
+        if: success() && env.SKIP_PIPELINE != 'true'
         env:
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
@@ -642,15 +828,20 @@ jobs:
           const overrideDays=process.env.DAYS_OVERRIDE?process.env.DAYS_OVERRIDE.split(',').map(function(d){return d.trim();}).filter(Boolean):info.days;
           const days=overrideDays.length>0?overrideDays:info.days,dayMeta=info.dayMeta||{};
           function httpsReq(opts,body){return new Promise(function(resolve,reject){const req=https.request(opts,function(res){let d='';res.on('data',function(c){d+=c;});res.on('end',function(){resolve({status:res.statusCode,body:d,headers:res.headers});});});req.on('error',reject);if(body)req.write(body);req.end();});}
-          async function getToken(){const body='client_id='+encodeURIComponent(CID)+'&client_secret='+encodeURIComponent(CS)+'&refresh_token='+encodeURIComponent(RT)+'&grant_type=refresh_token';const res=await httpsReq({hostname:'oauth2.googleapis.com',path:'/token',method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','Content-Length':Buffer.byteLength(body)}},body);if(res.status!==200){let ed={};try{ed=JSON.parse(res.body);}catch(e){}if(ed.error==='invalid_grant'){await sendNtfy('YouTube Token EXPIRED.\n\nFIX:\n1. developers.google.com/oauthplayground\n2. Select YouTube Data API v3\n3. Get new refresh token\n4. Update YOUTUBE_REFRESH_TOKEN in GitHub Secrets','ACTION REQUIRED -- YouTube Token Expired','urgent','x,warning');process.exit(1);}throw new Error('Token failed');}return JSON.parse(res.body).access_token;}
+          async function getToken(){const body='client_id='+encodeURIComponent(CID)+'&client_secret='+encodeURIComponent(CS)+'&refresh_token='+encodeURIComponent(RT)+'&grant_type=refresh_token';const res=await httpsReq({hostname:'oauth2.googleapis.com',path:'/token',method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','Content-Length':Buffer.byteLength(body)}},body);if(res.status!==200){let ed={};try{ed=JSON.parse(res.body);}catch(e){}if(ed.error==='invalid_grant'){await sendNtfy('YouTube Token EXPIRED.\n\nFIX:\n1. developers.google.com/oauthplayground\n2. Select YouTube Data API v3\n3. Get new refresh token\n4. Update YOUTUBE_REFRESH_TOKEN in GitHub Secrets','ACTION REQUIRED YouTube Token Expired','urgent','x,warning');process.exit(1);}throw new Error('Token failed');}return JSON.parse(res.body).access_token;}
           async function uploadVideo(token,filePath,meta,publishAt){const fileSize=fs.statSync(filePath).size;const initBody=JSON.stringify({snippet:{title:meta.title,description:meta.description||'',tags:meta.tags||['personalfinance'],categoryId:'27'},status:{privacyStatus:'private',publishAt:publishAt,selfDeclaredMadeForKids:false}});const initRes=await httpsReq({hostname:'www.googleapis.com',path:'/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json','Content-Length':Buffer.byteLength(initBody),'X-Upload-Content-Type':'video/mp4','X-Upload-Content-Length':fileSize}},initBody);if(initRes.status!==200)throw new Error('Init HTTP '+initRes.status);const uploadUrl=initRes.headers.location;const CHUNK=8*1024*1024,fd=fs.openSync(filePath,'r');let uploaded=0,videoId=null;while(uploaded<fileSize){const cs=Math.min(CHUNK,fileSize-uploaded),buf=Buffer.alloc(cs);fs.readSync(fd,buf,0,cs,uploaded);const uo=new URL(uploadUrl);const cr=await httpsReq({hostname:uo.hostname,path:uo.pathname+uo.search,method:'PUT',headers:{'Authorization':'Bearer '+token,'Content-Length':cs,'Content-Range':'bytes '+uploaded+'-'+(uploaded+cs-1)+'/'+fileSize}},buf);uploaded+=cs;if(cr.status===200||cr.status===201){videoId=JSON.parse(cr.body).id;break;}if(cr.status!==308)throw new Error('Chunk HTTP '+cr.status);console.log('Uploading... '+Math.round((uploaded/fileSize)*100)+'%');}fs.closeSync(fd);return videoId;}
           function getPublishAt(idx){const now=new Date();const base=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()+1,PUBLISH_UTC_HOUR,0,0));return new Date(base.getTime()+idx*86400000).toISOString();}
-          const slotName={A:'7AM EAT',B:'12PM EAT',C:'7PM EAT'}[SLOT]||SLOT;
-          (async function(){let uploaded=0,failed=0;const results=[],scheduledVideos=[];let token;try{token=await getToken();}catch(e){console.log('Token error: '+e.message);fs.writeFileSync('out/.upload_results.json','[]');process.exit(1);}for(let i=0;i<days.length;i++){const day=days[i],filePath='out/'+day+'_final.mp4';if(!fs.existsSync(filePath)){results.push({day:day,status:'failed',error:'not found'});failed++;continue;}const meta=dayMeta[day]||{},publishAt=getPublishAt(i);console.log('Uploading: '+day+' -> '+publishAt);try{const vid=await uploadVideo(token,filePath,{title:meta.youtubeTitle||day+' | Daily Wealth Building',description:meta.youtubeDescription||'',tags:['personalfinance','wealthbuilding']},publishAt);console.log('OK: '+day+' -> https://youtu.be/'+vid);results.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,status:'ok',publishAt:publishAt,slot:SLOT});scheduledVideos.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,publishAt:publishAt,slot:SLOT,notifScheduled:false,pinnedComment:meta.pinnedComment||''});uploaded++;}catch(e){console.log('FAIL: '+day+': '+e.message);results.push({day:day,status:'failed',error:e.message});failed++;}}fs.writeFileSync('out/.upload_results.json',JSON.stringify(results,null,2));let existing=[];try{existing=JSON.parse(fs.readFileSync('scheduled-videos.json','utf8'));}catch(e){}fs.writeFileSync('scheduled-videos.json',JSON.stringify(existing.filter(function(v){return days.indexOf(v.day)===-1;}).concat(scheduledVideos),null,2));console.log('Uploaded: '+uploaded+' | Failed: '+failed+' | Slot: '+SLOT+' ('+slotName+')');})();
+          const slotName={A:'7AM EAT',B:'11AM EAT',C:'3PM EAT',D:'7PM EAT',E:'11PM EAT'}[SLOT]||SLOT;
+          (async function(){let uploaded=0,failed=0;const results=[],scheduledVideos=[];let token;try{token=await getToken();}catch(e){console.log('Token error: '+e.message);fs.writeFileSync('out/.upload_results.json','[]');process.exit(1);}for(let i=0;i<days.length;i++){const day=days[i],filePath='out/'+day+'_final.mp4';if(!fs.existsSync(filePath)){results.push({day:day,status:'failed',error:'not found'});failed++;continue;}const meta=dayMeta[day]||{},publishAt=getPublishAt(i);console.log('Uploading: '+day+' -> '+publishAt);try{const vid=await uploadVideo(token,filePath,{title:meta.youtubeTitle||day+' | Daily Wealth Building',description:meta.youtubeDescription||'',tags:['personalfinance','wealthbuilding','financialliteracy','moneytips','DailyWealthBuilding']},publishAt);console.log('OK: '+day+' -> https://youtu.be/'+vid);results.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,status:'ok',publishAt:publishAt,slot:SLOT});scheduledVideos.push({day:day,videoId:vid,url:'https://youtu.be/'+vid,publishAt:publishAt,slot:SLOT,commentPosted:false,repliesEnabled:true,pinnedComment:meta.pinnedComment||''});uploaded++;}catch(e){console.log('FAIL: '+day+': '+e.message);results.push({day:day,status:'failed',error:e.message});failed++;}}
+          fs.writeFileSync('out/.upload_results.json',JSON.stringify(results,null,2));
+          let existing=[];try{existing=JSON.parse(fs.readFileSync('scheduled-videos.json','utf8'));}catch(e){}
+          if(!Array.isArray(existing))existing=[];
+          fs.writeFileSync('scheduled-videos.json',JSON.stringify(existing.filter(function(v){return days.indexOf(v.day)===-1;}).concat(scheduledVideos),null,2));
+          console.log('Uploaded: '+uploaded+' | Failed: '+failed+' | Slot: '+SLOT+' ('+slotName+')');})();
           YTEOF
 
       - name: Commit scheduled-videos.json
-        if: success()
+        if: success() && env.SKIP_PIPELINE != 'true'
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -661,13 +852,32 @@ jobs:
           git diff --staged --quiet || git commit -m "chore: update scheduled videos [skip ci]"
           git push 2>/dev/null || true
 
+      # =========================================================================
+      # UPDATE COUNTER -- increment nextDay after successful render
+      # =========================================================================
       - name: Commit video counter
-        if: success()
+        if: success() && env.SKIP_PIPELINE != 'true'
         run: |
           node << 'COUNTEREOF'
           const fs=require('fs');
-          if(!fs.existsSync('src/current-video.js')){process.exit(0);}
-          let counter={nextDay:50};try{counter=JSON.parse(fs.readFileSync('video-counter.json','utf8'));}catch(e){}
+          // Only increment if Groq generated a new video (not content-file mode)
+          if(!fs.existsSync('src/current-video.js')){
+            // Content file mode -- increment based on what was rendered
+            let info={days:[]};try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
+            if(info.days&&info.days.length>0){
+              const lastDay=info.days[info.days.length-1];
+              const dayNum=parseInt(lastDay.replace('day',''))||38;
+              let counter={nextDay:38};try{counter=JSON.parse(fs.readFileSync('video-counter.json','utf8'));}catch(e){}
+              // Only advance if we rendered this day (don't go backwards)
+              if(dayNum>=counter.nextDay){
+                counter.lastRendered='day'+dayNum;counter.lastRenderedAt=new Date().toISOString();counter.nextDay=dayNum+1;
+                fs.writeFileSync('video-counter.json',JSON.stringify(counter,null,2));
+                console.log('Counter: day'+dayNum+' -> next: day'+counter.nextDay);
+              }
+            }
+            process.exit(0);
+          }
+          let counter={nextDay:38};try{counter=JSON.parse(fs.readFileSync('video-counter.json','utf8'));}catch(e){}
           const rendered=counter.nextDay;counter.lastRendered='day'+rendered;counter.lastRenderedAt=new Date().toISOString();counter.nextDay=rendered+1;
           fs.writeFileSync('video-counter.json',JSON.stringify(counter,null,2));
           console.log('Counter: day'+rendered+' -> next: day'+counter.nextDay);
@@ -689,13 +899,14 @@ jobs:
           const runId=process.env.GITHUB_RUN_ID||'0',runNum=process.env.GITHUB_RUN_NUMBER||'0';
           const repo=process.env.GITHUB_REPOSITORY||'dailywealthbuilding/DWB-Videos';
           const slot=process.env.PUBLISH_SLOT||'C';
-          const slotName={A:'7AM EAT (Asia/AU)',B:'12PM EAT (Europe)',C:'7PM EAT (US)'}[slot]||slot;
+          const slotNames={A:'7AM EAT',B:'11AM EAT',C:'3PM EAT',D:'7PM EAT',E:'11PM EAT'};
+          const slotName=slotNames[slot]||slot;
           let info={week:'unknown',days:[]},uploads=[];
           try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
           try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}
           const rendered=(info.days||[]).filter(function(d){return fs.existsSync('out/'+d+'_final.mp4');});
           const links=uploads.filter(function(u){return u.status==='ok';}).map(function(u){return '- ['+u.day+']('+u.url+') publishes '+u.publishAt;}).join('\n');
-          const readme=['# DWB -- Daily Wealth Building','','@DailyWealthBuilding | 90-Day Challenge','','## Latest: '+today+' ['+slotName+']','','| | |','|---|---|','| Week | '+info.week+' |','| Days | '+(info.days||[]).join(', ')+' |','| Clips | 8 per video |','| Slot | '+slotName+' |','| Run | [#'+runNum+'](https://github.com/'+repo+'/actions/runs/'+runId+') |','',links?'## YouTube Links\n\n'+links:'','','## Pipeline v10.1','','- 8 aesthetic clips per day | Cormorant/Playfair italic body fonts','- Text at lower-third | Glass cards for contrast','- 3x daily: 7AM / 12PM / 7PM EAT | Slot-aware YouTube scheduling','','---','_Auto-updated '+today+'_'].join('\n');
+          const readme=['# DWB -- Daily Wealth Building','','@DailyWealthBuilding | 90-Day Challenge','','## Latest: '+today+' ['+slotName+']','','| | |','|---|---|','| Week | '+info.week+' |','| Days | '+(info.days||[]).join(', ')+' |','| Clips | 8 per video |','| Slots | 5x daily: 7AM/11AM/3PM/7PM/11PM EAT |','| Run | [#'+runNum+'](https://github.com/'+repo+'/actions/runs/'+runId+') |','',links?'## YouTube Links\n\n'+links:'','','## Pipeline v10.2','','- 5 slots/day | 8 aesthetic clips | Cormorant/Playfair body fonts','- Auto personal clip library | Glass cards lower-third','- DETECTEOF crash-proof | Auto counter advance','','---','_Auto-updated '+today+'_'].join('\n');
           fs.writeFileSync('README.md',readme);
           READMEEOF
           git config user.name  "github-actions[bot]"
@@ -708,6 +919,7 @@ jobs:
           git push 2>/dev/null || echo "Push skipped"
 
       - name: Upload artifacts
+        if: env.SKIP_PIPELINE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: dwb-${{ env.ACTIVE_WEEK }}-slot${{ env.PUBLISH_SLOT }}-run${{ github.run_number }}
@@ -729,16 +941,19 @@ jobs:
           const https=require('https'),fs=require('fs');
           const NTFY=process.env.NTFY_TOPIC||'';
           const SLOT=process.env.PUBLISH_SLOT||'C';
-          const slotName={A:'7AM EAT',B:'12PM EAT',C:'7PM EAT'}[SLOT]||SLOT;
+          const slotNames={A:'7AM EAT',B:'11AM EAT',C:'3PM EAT',D:'7PM EAT',E:'11PM EAT'};
+          const slotName=slotNames[SLOT]||SLOT;
           function safeTitle(s){return (s||'').replace(/[^\x20-\x7E]/g,'').replace(/\s+/g,' ').trim().slice(0,100);}
           const isOk=process.env.GITHUB_JOB_STATUS!=='failure';
           let info={week:'unknown',days:[]},uploads=[],music=[];
-          try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}try{music=JSON.parse(fs.readFileSync('out/.music_results.json','utf8'));}catch(e){}
+          try{info=JSON.parse(fs.readFileSync('out/.week_info.json','utf8'));}catch(e){}
+          try{uploads=JSON.parse(fs.readFileSync('out/.upload_results.json','utf8'));}catch(e){}
+          try{music=JSON.parse(fs.readFileSync('out/.music_results.json','utf8'));}catch(e){}
           const lines=['DWB '+(isOk?'COMPLETE':'FAILED')+' [Slot '+SLOT+': '+slotName+']',info.week+' | '+new Date().toISOString().slice(0,10),''];
-          let passed=0;for(const day of (info.days||[])){const mp4='out/'+day+'_final.mp4',sz=fs.existsSync(mp4)?Math.round(fs.statSync(mp4).size/1024/1024):0;if(sz>0){const u=uploads.find(function(x){return x.day===day;});const m=music.find(function(x){return x.day===day;});lines.push(day+' OK '+sz+'MB'+(m?' ['+m.mood+']':'')+(u&&u.status==='ok'?' -> '+u.url:''));passed++;}else lines.push(day+' FAILED');}
+          let passed=0;
+          for(const day of (info.days||[])){const mp4='out/'+day+'_final.mp4',sz=fs.existsSync(mp4)?Math.round(fs.statSync(mp4).size/1024/1024):0;if(sz>0){const u=uploads.find(function(x){return x.day===day;});const m=music.find(function(x){return x.day===day;});lines.push(day+' OK '+sz+'MB'+(m?' ['+m.mood+']':'')+(u&&u.status==='ok'?' -> '+u.url:''));passed++;}else lines.push(day+' FAILED');}
           lines.push('','Result: '+passed+'/'+(info.days||[]).length);
-          lines.push('TikTok: post manually at '+slotName);
-          lines.push('sonilo.com: upload for AI music match');
+          lines.push('Posts today: 5 slots (7AM/11AM/3PM/7PM/11PM EAT)');
           if(!NTFY){process.exit(0);}
           const msg=lines.join('\n'),data=Buffer.from(msg);
           const req=https.request({hostname:'ntfy.sh',port:443,path:'/'+NTFY,method:'POST',headers:{'Content-Type':'text/plain','Content-Length':data.length,'Title':safeTitle('DWB '+(isOk?'DONE':'FAILED')+' '+SLOT+' '+passed+'/'+(info.days||[]).length),'Priority':isOk?'default':'high','Tags':isOk?'white_check_mark':'x'}},function(res){console.log('ntfy: '+res.statusCode);});
