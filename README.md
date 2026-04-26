@@ -2,7 +2,7 @@
 
 @DailyWealthBuilding | 90-Day Challenge
 
-## Latest: 2026-04-26 [7PM EAT]
+## Latest: 2026-04-26 [11PM EAT]
 
 | | |
 |---|---|
@@ -10,7 +10,7 @@
 | Days | day38 |
 | Clips | 8 per video |
 | Slots | 5x daily: 7AM/11AM/3PM/7PM/11PM EAT |
-| Run | [#77](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24961768166) |
+| Run | [#78](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24966254552) |
 
 
 
