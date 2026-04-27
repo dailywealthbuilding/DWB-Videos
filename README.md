@@ -10,7 +10,7 @@
 | Days | day38 |
 | Clips | 8 per video |
 | Slots | 5x daily: 7AM/11AM/3PM/7PM/11PM EAT |
-| Run | [#80](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24988955706) |
+| Run | [#81](https://github.com/dailywealthbuilding/DWB-Videos/actions/runs/24997343823) |
 
 
 
